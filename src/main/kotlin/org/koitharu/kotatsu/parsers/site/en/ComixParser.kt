@@ -293,7 +293,7 @@ internal class Comix(context: MangaLoaderContext) :
             id = generateUid(hashId),
             url = "/title/$hashId",
             publicUrl = "https://comix.to/title/$hashId",
-            coverUrl = coverUrl,
+            coverUrl = coverUrl?.toAbsoluteUrl(domain),
             title = title,
             altTitles = parseAltTitles(json),
             description = description,
@@ -1359,13 +1359,8 @@ internal class Comix(context: MangaLoaderContext) :
         // (see [SITE_HOOKS_JS]) so a call that hit it is not waited on forever.
         private const val SITE_API_JS = """
                 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-                // A bare import() in an injected script is parsed in the wrong context;
-                // going through Function keeps it a real dynamic import.
                 const importModule = new Function('url', 'return import(url)');
-                const isGet = (value) => typeof value === 'function' &&
-                    String(value).indexOf('.get(') !== -1 &&
-                    /\.data\)?$/.test(String(value));
-                const siteApi = async (isRoute) => {
+                const getApiServices = async () => {
                     const find = async () => {
                         const main = document.querySelector($MAIN_MODULE_SELECTOR_JS);
                         if (!main || !main.src) return null;
@@ -1373,31 +1368,44 @@ internal class Comix(context: MangaLoaderContext) :
                         const loaded = performance.getEntriesByType('resource')
                             .map((entry) => entry.name)
                             .filter((url) => url.indexOf(directory) === 0 && /\.js(\?|$)/.test(url));
-                        const members = [];
-                        for (const url of new Set([main.src, ...loaded])) {
+                        const candidates = new Set([main.src, ...loaded]);
+                        let mangaApi = null;
+                        let readerApi = null;
+                        for (const url of candidates) {
                             let exported;
                             try {
                                 exported = await importModule(url);
                             } catch (e) {
                                 continue;
                             }
-                            for (const value of Object.values(exported)) {
-                                if (value && typeof value === 'object') members.push(...Object.values(value));
+                            if (!exported || typeof exported !== 'object') continue;
+                            for (const key of Object.keys(exported)) {
+                                const val = exported[key];
+                                if (!val || typeof val !== 'object') continue;
+                                if (!mangaApi && typeof val.Ix === 'function' && typeof val.Cs === 'function') {
+                                    mangaApi = val;
+                                }
+                                if (!readerApi && typeof val.ur === 'function' && typeof val.Ix !== 'function') {
+                                    readerApi = val;
+                                }
                             }
-                            const route = members
-                                .filter((group) => group && typeof group === 'object')
-                                .flatMap((group) => Object.values(group))
-                                .find(isRoute);
-                            const get = members.find(isGet);
-                            if (route && get) return (id, params) => get(route(id), { params: params });
+                            if (mangaApi && readerApi) break;
+                        }
+                        if (mangaApi || readerApi) {
+                            return {
+                                mangaApi: mangaApi,
+                                readerApi: readerApi,
+                                fetchChapters: mangaApi ? (id, opts) => mangaApi.Ix(id, opts) : null,
+                                fetchChapterPages: readerApi ? (id) => readerApi.ur(id) : null
+                            };
                         }
                         return null;
                     };
                     const deadline = Date.now() + $SITE_API_WAIT_MS;
                     for (;;) {
-                        if (document.readyState === 'complete') {
-                            const api = await find();
-                            if (api) return api;
+                        if (document.readyState === 'complete' || document.querySelector($MAIN_MODULE_SELECTOR_JS)) {
+                            const apis = await find();
+                            if (apis) return apis;
                         }
                         if (Date.now() >= deadline) return null;
                         await sleep(250);
@@ -1448,16 +1456,8 @@ $CLOUDFLARE_DETECT_JS
                 if (isBadGateway()) return blockedResult();
 $SITE_API_JS
                 const MANGA_ID = $mangaId;
-                const CHAPTER_PATH = '/title/' + MANGA_ID + '-';
-                const isChapter = (item) => item &&
-                    typeof item.id === 'number' &&
-                    typeof item.number === 'number' &&
-                    typeof item.url === 'string' &&
-                    item.url.indexOf(CHAPTER_PATH) !== -1;
-
-                const chapterPage = await siteApi((route) => typeof route === 'function' &&
-                    /^\(?[\w$]+\)?=>`\/manga\/\$\{[\w$]+\}\/chapters`$/.test(String(route)));
-                if (!chapterPage) {
+                const apis = await getApiServices();
+                if (!apis || !apis.fetchChapters) {
                     if (isBadGateway()) return blockedResult();
                     return JSON.stringify({ error: "Could not find the site's chapters API" });
                 }
@@ -1475,9 +1475,9 @@ $SITE_API_JS
                 let total = null;
                 for (let page = 1; page <= $MAX_CHAPTER_API_PAGES; page++) {
                     await pace();
-                    let result;
+                    let rawResult;
                     try {
-                        result = await untilSettled(chapterPage(MANGA_ID, {
+                        rawResult = await untilSettled(apis.fetchChapters(MANGA_ID, {
                             page: page,
                             limit: $CHAPTER_PAGE_LIMIT,
                             order: { number: 'desc' },
@@ -1487,18 +1487,34 @@ $SITE_API_JS
                         if (isSiteCaptcha()) return '$SITE_CAPTCHA';
                         return failure(e, 'Chapter page ' + page);
                     }
-                    if (result === CAPTCHA) return '$SITE_CAPTCHA';
-                    const items = result && result.items;
-                    const meta = result && result.meta;
-                    if (!Array.isArray(items) || !items.every(isChapter) || !meta) {
+                    if (rawResult === CAPTCHA) return '$SITE_CAPTCHA';
+                    
+                    const rawItems = (rawResult && (rawResult.Gb || rawResult.items)) || [];
+                    const rawMeta = (rawResult && (rawResult.sk || rawResult.meta)) || {};
+
+                    const items = rawItems.map((c) => ({
+                        id: c.zf != null ? c.zf : c.id,
+                        number: c.K8 != null ? c.K8 : c.number,
+                        name: c.LG != null ? c.LG : (c.name || null),
+                        volume: c.Ae != null ? c.Ae : (c.volume || null),
+                        url: c.fI != null ? c.fI : (c.url || ''),
+                        isOfficial: c.xb != null ? !!c.xb : !!c.isOfficial,
+                        group: c.UN ? { id: c.UN.QL, name: c.UN.LG } : (c.group || null),
+                        createdAt: c.DC != null ? c.DC : (c.createdAt || null),
+                        createdAtFormatted: typeof c.DC === 'string' ? c.DC : (c.createdAtFormatted || null)
+                    }));
+
+                    if (!Array.isArray(items) || (items.length > 0 && typeof items[0].id === 'undefined')) {
                         return JSON.stringify({
                             error: 'Chapter page ' + page + " came back in a shape the parser doesn't recognise"
                         });
                     }
                     collected.push(...items);
-                    if (typeof meta.total === 'number') total = meta.total;
-                    const lastPage = meta.lastPage || meta.last_page || page;
-                    if (items.length === 0 || meta.hasNext === false || page >= lastPage) break;
+                    const metaTotal = rawMeta.JO != null ? rawMeta.JO : rawMeta.total;
+                    if (typeof metaTotal === 'number') total = metaTotal;
+                    const lastPage = rawMeta.XT != null ? rawMeta.XT : (rawMeta.lastPage || rawMeta.last_page || page);
+                    const hasNext = rawMeta.eQ != null ? rawMeta.eQ : (rawMeta.hasNext !== false);
+                    if (items.length === 0 || hasNext === false || page >= lastPage) break;
                 }
 
                 // --- Compact the result for the trip back. ---
@@ -1661,43 +1677,60 @@ $CLOUDFLARE_DETECT_JS
                 if (isBadGateway()) return blockedResult();
 $SITE_API_JS
                 const CHAPTER_ID = $chapterId;
-                const isImage = (item) => item && typeof item === 'object' &&
-                    typeof item.url === 'string' && !item.hid && !item.title && item.number === undefined;
-                const isPages = (value) => value && !value.meta &&
-                    Array.isArray(value.items) && value.items.length > 0 && value.items.every(isImage);
-                const found = (holder) => JSON.stringify({
-                    result: {
-                        pages: {
-                            baseUrl: holder.baseUrl || '',
-                            items: holder.items.map((item) => item.s != null ? { url: item.url, s: item.s } : { url: item.url }),
-                            alt: Array.isArray(holder.alt) ? holder.alt : undefined,
-                            node: holder.node || undefined
-                        }
-                    }
-                });
-
-                const chapter = await siteApi((route) => typeof route === 'function' &&
-                    /^\(?[\w$]+\)?=>`\/chapters\/\$\{[\w$]+\}`$/.test(String(route)));
-                if (!chapter) {
+                const apis = await getApiServices();
+                if (!apis || !apis.fetchChapterPages) {
                     if (isBadGateway()) return blockedResult();
                     return JSON.stringify({ error: "Could not find the site's chapter API" });
                 }
+
                 let result;
                 try {
-                    result = await untilSettled(chapter(CHAPTER_ID));
+                    result = await untilSettled(apis.fetchChapterPages(CHAPTER_ID));
                 } catch (e) {
                     if (isSiteCaptcha()) return '$SITE_CAPTCHA';
                     return failure(e, 'Chapter pages');
                 }
                 if (result === CAPTCHA) return '$SITE_CAPTCHA';
-                // The site's reader takes the pages either as an object or as a bare array.
+
+                if (result && Array.isArray(result.iy)) {
+                    const alt = (result.iy[0] && Array.isArray(result.iy[0].hG)) ? result.iy[0].hG : (Array.isArray(result.hG) ? result.hG : undefined);
+                    const node = (result.iy[0] && result.iy[0].Mg) || result.Mg || undefined;
+                    return JSON.stringify({
+                        result: {
+                            pages: {
+                                baseUrl: '',
+                                items: result.iy.map((p) => ({
+                                    url: p.fI || p.url,
+                                    s: p.s || 0
+                                })),
+                                alt: alt,
+                                node: node
+                            }
+                        }
+                    });
+                }
+
+                // Legacy fallback if pages/items array is returned
+                const isImage = (item) => item && typeof item === 'object' &&
+                    typeof item.url === 'string' && !item.hid && !item.title && item.number === undefined;
+                const isPages = (value) => value && !value.meta &&
+                    Array.isArray(value.items) && value.items.length > 0 && value.items.every(isImage);
                 const pages = [result, ...Object.values(result || {})]
                     .map((value) => Array.isArray(value) ? { items: value } : value)
                     .find(isPages);
                 if (!pages) {
                     return JSON.stringify({ error: "Chapter pages came back in a shape the parser doesn't recognise" });
                 }
-                return found(pages);
+                return JSON.stringify({
+                    result: {
+                        pages: {
+                            baseUrl: pages.baseUrl || '',
+                            items: pages.items.map((item) => item.s != null ? { url: item.url, s: item.s } : { url: item.url }),
+                            alt: Array.isArray(pages.alt) ? pages.alt : undefined,
+                            node: pages.node || undefined
+                        }
+                    }
+                });
             })()
         """
 
