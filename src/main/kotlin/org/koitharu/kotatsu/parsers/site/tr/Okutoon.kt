@@ -1,6 +1,5 @@
 package org.koitharu.kotatsu.parsers.site.tr
 
-import org.jsoup.Jsoup
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -145,16 +144,7 @@ internal class Okutoon(context: MangaLoaderContext) :
 			}
 		}
 
-		val doc = try {
-			webClient.httpGet(url).parseHtml()
-		} catch (e: Exception) {
-			val html = context.evaluateJs(url, "document.documentElement.outerHTML", 25000L)
-			if (!html.isNullOrBlank()) {
-				Jsoup.parse(html, url)
-			} else {
-				throw e
-			}
-		}
+		val doc = webClient.httpGet(url).parseHtml()
 
 		return doc.select("a.series-card").mapNotNull { a ->
 			val href = a.attrAsRelativeUrlOrNull("href")?.let { "/" + it.removePrefix("/") } ?: return@mapNotNull null
@@ -189,16 +179,7 @@ internal class Okutoon(context: MangaLoaderContext) :
 
 	override suspend fun getDetails(manga: Manga): Manga {
 		val fullUrl = manga.url.toAbsoluteUrl(domain)
-		val doc = try {
-			webClient.httpGet(fullUrl).parseHtml()
-		} catch (e: Exception) {
-			val html = context.evaluateJs(fullUrl, "document.documentElement.outerHTML", 25000L)
-			if (!html.isNullOrBlank()) {
-				Jsoup.parse(html, fullUrl)
-			} else {
-				throw e
-			}
-		}
+		val doc = webClient.httpGet(fullUrl).parseHtml()
 
 		val statusText = doc.selectFirst(".series-status")?.text().orEmpty()
 		val altTitleText = doc.selectFirst(".series-detail-alt-title")?.textOrNull()
@@ -260,16 +241,7 @@ internal class Okutoon(context: MangaLoaderContext) :
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
 		val fullUrl = chapter.url.toAbsoluteUrl(domain)
-		val doc = try {
-			webClient.httpGet(fullUrl).parseHtml()
-		} catch (e: Exception) {
-			val html = context.evaluateJs(fullUrl, "document.documentElement.outerHTML", 25000L)
-			if (!html.isNullOrBlank()) {
-				Jsoup.parse(html, fullUrl)
-			} else {
-				throw e
-			}
-		}
+		val doc = webClient.httpGet(fullUrl).parseHtml()
 
 		val imgElements = doc.select("div.reader-pages img, .reader-pages .reader-page, img.reader-page, #readerPages img")
 			.ifEmpty { doc.select(".reader-page-frame img, [data-page] img") }
