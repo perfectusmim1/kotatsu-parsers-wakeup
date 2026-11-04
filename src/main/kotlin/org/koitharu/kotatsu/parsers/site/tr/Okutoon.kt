@@ -1,5 +1,9 @@
 package org.koitharu.kotatsu.parsers.site.tr
 
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.exception.ParseException
+
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -240,7 +244,14 @@ internal class Okutoon(context: MangaLoaderContext) :
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
 		val fullUrl = chapter.url.toAbsoluteUrl(domain)
-		val doc = webClient.httpGet(fullUrl).parseHtml()
+		val doc = try {
+			webClient.httpGet(fullUrl).parseHtml()
+		} catch (_: Exception) {
+			loadRenderedDocument(
+				url = fullUrl,
+				readySelector = "div.reader-pages img, .reader-pages .reader-page, img.reader-page, #readerPages img, .reader-page-frame img, [data-page] img",
+			)
+		}
 
 		val imgElements = doc.select("div.reader-pages img, .reader-pages .reader-page, img.reader-page, #readerPages img")
 			.ifEmpty { doc.select(".reader-page-frame img, [data-page] img") }
@@ -255,6 +266,94 @@ internal class Okutoon(context: MangaLoaderContext) :
 				source = source,
 			)
 		}
+	}
+
+	private suspend fun loadRenderedDocument(url: String, readySelector: String): Document {
+		val script = """
+			(() => {
+				const root = document.documentElement;
+				const html = (root && root.outerHTML) || '';
+				const text = ((document.body && document.body.innerText) || (root && root.innerText) || '');
+				const lower = (document.title + '\n' + text + '\n' + html).toLowerCase();
+				const challengeDetected = () => {
+					return document.querySelector('script[src*="challenge-platform"]') !== null ||
+						document.querySelector('script[src*="turnstile"]') !== null ||
+					document.querySelector('iframe[src*="challenges.cloudflare.com"]') !== null ||
+					document.querySelector('[src*="challenges.cloudflare.com"]') !== null ||
+					document.querySelector('.cf-turnstile') !== null ||
+					document.querySelector('input[name="cf-turnstile-response"]') !== null ||
+					document.getElementById('challenge-error-title') !== null ||
+					document.getElementById('challenge-error-text') !== null ||
+					document.querySelector('form[action*="__cf_chl"]') !== null ||
+					document.querySelector('.cf-browser-verification') !== null ||
+					((lower.includes('just a moment') || lower.includes('checking your browser')) && lower.includes('cloudflare')) ||
+					lower.includes('private access token challenge') ||
+					lower.includes('challenge-platform') ||
+					lower.includes('challenges.cloudflare.com') ||
+					lower.includes('cf-turnstile') ||
+					lower.includes('turnstile') ||
+					lower.includes('cf-chl-opt');
+				};
+				if (challengeDetected()) {
+					return "CLOUDFLARE_BLOCKED";
+				}
+				if (document.querySelector('$readySelector') !== null) {
+					return html;
+				}
+				return null;
+			})();
+		""".trimIndent()
+		val rawResult = context.evaluateJs(url, script, 30000L).orEmpty().decodeWebViewString()
+		if (rawResult == CLOUDFLARE_BLOCKED || isCloudflareChallengePage(rawResult)) {
+			requestCloudflareVerification(url)
+		}
+		if (rawResult.isBlank()) {
+			throw ParseException("OkuToon reader page did not load", url)
+		}
+		return Jsoup.parse(rawResult, url)
+	}
+
+	private fun requestCloudflareVerification(url: String): Nothing {
+		try {
+			context.requestCloudflareVerification(this, url)
+		} catch (e: UnsupportedOperationException) {
+			throw ParseException("Cloudflare verification is required", url, e)
+		}
+	}
+
+	private fun isCloudflareChallengePage(html: String): Boolean {
+		if (html.isBlank()) return false
+		val lower = html.lowercase(Locale.US)
+		return lower.contains("<title>access denied") ||
+			lower.contains("<title>just a moment") ||
+			((lower.contains("just a moment") || lower.contains("checking your browser")) && lower.contains("cloudflare")) ||
+			lower.contains("cf-browser-verification") ||
+			lower.contains("cf-chl-opt") ||
+			lower.contains("/cdn-cgi/challenge-platform/") ||
+			lower.contains("challenges.cloudflare.com") ||
+			lower.contains("cf-turnstile") ||
+			lower.contains("turnstile")
+	}
+
+		private fun String.decodeWebViewString(): String {
+		if (length < 2 || first() != '"' || last() != '"') {
+			return this
+		}
+		return substring(1, lastIndex)
+			.replace("\\\"", "\"")
+			.replace("\\\\", "\\")
+			.replace("\\/", "/")
+			.replace("\\n", "\n")
+			.replace("\\r", "\r")
+			.replace("\\t", "\t")
+			.replace(unicodeEscapeRegex) { match ->
+				match.groupValues[1].toInt(16).toChar().toString()
+			}
+	}
+
+	private companion object {
+		const val CLOUDFLARE_BLOCKED = "CLOUDFLARE_BLOCKED"
+		val unicodeEscapeRegex = Regex("""\\u([0-9A-Fa-f]{4})""")
 	}
 
 	override suspend fun getRelatedManga(seed: Manga): List<Manga> {
