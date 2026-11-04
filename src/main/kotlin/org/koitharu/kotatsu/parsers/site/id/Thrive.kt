@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.id
 import okhttp3.Headers.Companion.toHeaders
 import org.json.JSONArray
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.network.UserAgents
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -22,7 +23,7 @@ internal class Thrive(context: MangaLoaderContext) :
     override val filterCapabilities = MangaListFilterCapabilities(isSearchSupported = true)
     
     private val headers = mapOf(
-        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
+        "User-Agent" to UserAgents.CHROME_DESKTOP,
         "Referer" to "https://$domain/"
     ).toHeaders()
 

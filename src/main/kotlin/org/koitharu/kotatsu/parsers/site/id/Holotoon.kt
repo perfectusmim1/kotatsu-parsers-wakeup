@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.id
 import org.jsoup.nodes.Element
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
+import org.koitharu.kotatsu.parsers.network.UserAgents
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
@@ -15,7 +16,7 @@ internal class Holotoon(context: MangaLoaderContext) :
 
     override val configKeyDomain = ConfigKey.Domain("v1.holotoon.site")
     
-    override val userAgentKey = ConfigKey.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0")
+    override val userAgentKey = ConfigKey.UserAgent(UserAgents.FIREFOX_DESKTOP)
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.UPDATED,

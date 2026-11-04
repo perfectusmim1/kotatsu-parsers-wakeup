@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.all
 import okhttp3.Headers
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
+import org.koitharu.kotatsu.parsers.network.UserAgents
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
@@ -16,7 +17,7 @@ internal class Multporn(context: MangaLoaderContext) :
     override val configKeyDomain = ConfigKey.Domain("multporn.net")
 
     override fun getRequestHeaders(): Headers = Headers.Builder()
-        .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.122 Safari/537.36")
+        .add("User-Agent", UserAgents.CHROME_DESKTOP)
 		.add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 		.build()
 

@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.all
 import okhttp3.Headers
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.koitharu.kotatsu.parsers.network.UserAgents
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -40,7 +41,7 @@ internal class MyReadingManga(context: MangaLoaderContext) :
 	override val configKeyDomain = ConfigKey.Domain("myreadingmanga.info")
 
     override fun getRequestHeaders(): Headers = Headers.Builder()
-        .add("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36")
+        .add("User-Agent", UserAgents.CHROME_MOBILE)
         .add("X-Requested-With", randomString((1..20).random()))
         .build()
 

@@ -7,6 +7,7 @@ import okhttp3.HttpUrl
 import org.jsoup.nodes.Element
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
+import org.koitharu.kotatsu.parsers.network.UserAgents
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.AbstractMangaParser
 import org.koitharu.kotatsu.parsers.exception.ParseException
@@ -41,8 +42,7 @@ internal abstract class WebtoonsParser(
 			isMultipleTagsSupported = true,
 		)
 
-	override val userAgentKey =
-		ConfigKey.UserAgent("Mozilla/5.0 (Linux; Android 12; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36")
+	override val userAgentKey = ConfigKey.UserAgent(UserAgents.CHROME_MOBILE)
 
 	override suspend fun getFilterOptions() = MangaListFilterOptions(
 		// Canvas (the reader-published section) is offered alongside the genres
