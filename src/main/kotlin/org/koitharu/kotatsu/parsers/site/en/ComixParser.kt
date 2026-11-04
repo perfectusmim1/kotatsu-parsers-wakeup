@@ -262,24 +262,36 @@ internal class Comix(context: MangaLoaderContext) :
         for (key in queries.keys()) {
             val value = queries.optJSONObject(key) ?: continue
             val items = value.optJSONObject("result")?.optJSONArray("items")
+                ?: value.optJSONObject("result")?.optJSONArray("Gb")
                 ?: value.optJSONArray("items")
+                ?: value.optJSONArray("Gb")
             if (items != null && items.length() > 0) return items
         }
         return null
     }
 
     private fun parseMangaFromJson(json: JSONObject): Manga {
-        val hashId = json.optString("hid").ifBlank { json.optString("hash_id") }
-        val title = json.getString("title")
+        val hashId = json.optString("hid")
+            .ifBlank { json.optString("hash_id") }
+            .ifBlank { json.optString("zq") }
+        val title = json.optString("title")
+            .ifBlank { json.optString("u4") }
         val description = json.optString("synopsis", "").nullIfEmpty()
-        val poster = json.optJSONObject("poster")
+            ?: json.optString("qI", "").nullIfEmpty()
+        val poster = json.optJSONObject("poster") ?: json.optJSONObject("KX")
         val coverUrl = poster?.optString("large", "")?.nullIfEmpty()
             ?: poster?.optString("medium", "")?.nullIfEmpty()
             ?: poster?.optString("small", "")?.nullIfEmpty()
-        val status = json.optString("status", "")
+            ?: poster?.optString("lW", "")?.nullIfEmpty()
+            ?: poster?.optString("ZN", "")?.nullIfEmpty()
+            ?: json.optString("cover", "").nullIfEmpty()
+            ?: json.optString("coverUrl", "").nullIfEmpty()
+        val status = json.optString("status", "").ifBlank { json.optString("iI", "") }
         val rating = json.optDouble("ratedAvg", Double.NaN)
             .takeUnless { it.isNaN() }
-            ?: json.optDouble("rated_avg", 0.0)
+            ?: json.optDouble("rated_avg", Double.NaN)
+            .takeUnless { it.isNaN() }
+            ?: json.optDouble("gv", 0.0)
 
         val state = when (status) {
             "finished" -> MangaState.FINISHED
@@ -309,6 +321,7 @@ internal class Comix(context: MangaLoaderContext) :
     private fun parseContentRating(json: JSONObject): ContentRating {
         val rating = json.optString("contentRating")
             .ifBlank { json.optString("content_rating") }
+            .ifBlank { json.optString("jf") }
             .lowercase(Locale.ROOT)
         return when (rating) {
             "suggestive", "erotica" -> ContentRating.SUGGESTIVE
@@ -345,7 +358,7 @@ internal class Comix(context: MangaLoaderContext) :
             if (!key.contains("detail")) continue
             val value = queries.optJSONObject(key) ?: continue
             val candidate = value.optJSONObject("result") ?: value
-            if (candidate.has("hid") || candidate.has("hash_id") || candidate.has("title")) {
+            if (candidate.has("hid") || candidate.has("hash_id") || candidate.has("zq") || candidate.has("title") || candidate.has("u4")) {
                 return candidate
             }
         }
@@ -1183,12 +1196,9 @@ internal class Comix(context: MangaLoaderContext) :
         // What the site's own chapter list asks for. Larger pages, or pages asked for
         // faster than this, get every request from the device answered with HTTP 502
         // for a while.
-        private const val CHAPTER_PAGE_LIMIT = 20
-        private const val CHAPTER_PAGE_INTERVAL_MS = 2500
-
-        // Ceiling on chapter pages, far beyond any real series; only guards against a
-        // pager that never reports its end.
-        private const val MAX_CHAPTER_API_PAGES = 400
+        private const val CHAPTER_PAGE_LIMIT = 100
+        private const val CHAPTER_PAGE_INTERVAL_MS = 350
+        private const val MAX_CHAPTER_API_PAGES = 100
 
         // How long the scripts look for the site's API client among its modules,
         // which keep loading after the page's load event.
@@ -1265,7 +1275,9 @@ internal class Comix(context: MangaLoaderContext) :
                             const value = parse(text);
                             const holder = value && value.result && Array.isArray(value.result.items)
                                 ? value.result
-                                : (value && Array.isArray(value.items) ? value : null);
+                                : (value && Array.isArray(value.items)
+                                    ? value
+                                    : (value && Array.isArray(value.Gb) ? { items: value.Gb } : null));
                             if (holder) lists.push({ keyword: (url.searchParams.get('keyword') || '').trim(), holder: holder });
                         } catch (e) {}
                     };
@@ -1365,10 +1377,23 @@ internal class Comix(context: MangaLoaderContext) :
                         const main = document.querySelector($MAIN_MODULE_SELECTOR_JS);
                         if (!main || !main.src) return null;
                         const directory = main.src.slice(0, main.src.lastIndexOf('/') + 1);
-                        const loaded = performance.getEntriesByType('resource')
-                            .map((entry) => entry.name)
-                            .filter((url) => url.indexOf(directory) === 0 && /\.js(\?|$)/.test(url));
-                        const candidates = new Set([main.src, ...loaded]);
+                        const candidates = new Set([main.src]);
+                        try {
+                            performance.getEntriesByType('resource')
+                                .map((entry) => entry.name)
+                                .filter((url) => url.indexOf(directory) === 0 && /\.js(\?|$)/.test(url))
+                                .forEach((url) => candidates.add(url));
+                        } catch (e) {}
+                        try {
+                            if (!window.__comixMainChunks) {
+                                const resp = await fetch(main.src);
+                                const txt = await resp.text();
+                                const matches = Array.from(txt.matchAll(/["'](\.?\/[a-zA-Z0-9_\-\.]+\.js)["']/g)).map((m) => m[1]);
+                                window.__comixMainChunks = matches.map((rel) => new URL(rel, directory).href);
+                            }
+                            (window.__comixMainChunks || []).forEach((u) => candidates.add(u));
+                        } catch (e) {}
+
                         let mangaApi = null;
                         let readerApi = null;
                         for (const url of candidates) {
@@ -1599,19 +1624,30 @@ $CLOUDFLARE_DETECT_JS
                 };
                 const compactItem = (item) => {
                     const result = {
-                        hid: item.hid || item.hash_id || '',
-                        title: item.title || ''
+                        hid: item.hid || item.hash_id || item.zq || '',
+                        title: item.title || item.u4 || ''
                     };
                     if (item.synopsis) result.synopsis = item.synopsis;
+                    else if (item.qI) result.synopsis = item.qI;
+
                     if (item.status) result.status = item.status;
+                    else if (item.iI) result.status = item.iI;
+
                     if (item.contentRating) result.contentRating = item.contentRating;
+                    else if (item.jf) result.contentRating = item.jf;
+
                     if (item.ratedAvg != null) result.ratedAvg = item.ratedAvg;
                     else if (item.rated_avg != null) result.rated_avg = item.rated_avg;
-                    if (item.poster && typeof item.poster === 'object') {
+                    else if (item.gv != null) result.ratedAvg = item.gv;
+
+                    const posterObj = item.poster || item.KX;
+                    if (posterObj && typeof posterObj === 'object') {
                         result.poster = {};
-                        if (item.poster.large) result.poster.large = item.poster.large;
-                        if (item.poster.medium) result.poster.medium = item.poster.medium;
-                        if (item.poster.small) result.poster.small = item.poster.small;
+                        if (posterObj.large) result.poster.large = posterObj.large;
+                        if (posterObj.medium) result.poster.medium = posterObj.medium;
+                        if (posterObj.small) result.poster.small = posterObj.small;
+                        if (posterObj.lW) result.poster.large = posterObj.lW;
+                        if (posterObj.ZN) result.poster.medium = posterObj.ZN;
                     }
                     const termKeys = ['genres', 'genre', 'tags', 'theme', 'demographics', 'demographic', 'formats'];
                     for (const key of termKeys) {
@@ -1623,15 +1659,15 @@ $CLOUDFLARE_DETECT_JS
                     return result;
                 };
                 const isManga = (item) => item && typeof item === 'object' &&
-                    !!(item.hid || item.hash_id) && typeof item.title === 'string';
+                    !!(item.hid || item.hash_id || item.zq) && typeof (item.title || item.u4) === 'string';
                 // A paginated list of titles. An empty one is a search with no match
                 // or a page past the end; the browse page loads no other paged list.
-                const isList = (holder) => holder && Array.isArray(holder.items) && (
-                    holder.items.length > 0
-                        ? holder.items.every(isManga)
-                        : !!holder.meta && typeof holder.meta === 'object'
+                const isList = (holder) => holder && (Array.isArray(holder.items) || Array.isArray(holder.Gb)) && (
+                    (holder.items || holder.Gb).length > 0
+                        ? (holder.items || holder.Gb).every(isManga)
+                        : (!!holder.meta || !!holder.sk)
                 );
-                const found = (holder) => JSON.stringify({ result: { items: holder.items.map(compactItem) } });
+                const found = (holder) => JSON.stringify({ result: { items: (holder.items || holder.Gb).map(compactItem) } });
                 // A search only takes a list asked for with its keyword. A plain listing
                 // also falls back to any decoded list, should the response itself not
                 // be readable.
@@ -1651,8 +1687,8 @@ $CLOUDFLARE_DETECT_JS
                         if (queries) {
                             for (const k in queries) {
                                 const value = queries[k];
-                                const holder = value && (Array.isArray(value.items) ? value : value.result);
-                                if (isList(holder) && holder.items.length > 0) return found(holder);
+                                const holder = value && (Array.isArray(value.items) ? value : (Array.isArray(value.Gb) ? value : (value.result || null)));
+                                if (isList(holder) && (holder.items || holder.Gb).length > 0) return found(holder);
                             }
                         }
                     } catch (e) {}
