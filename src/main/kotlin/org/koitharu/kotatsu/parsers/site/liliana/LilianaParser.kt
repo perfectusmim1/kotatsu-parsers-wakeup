@@ -57,10 +57,11 @@ internal abstract class LilianaParser(
 			append(domain)
 			when {
 				!filter.query.isNullOrEmpty() -> {
+					val normalized = filter.query.normalizeSearchQuery().ifEmpty { filter.query.trim() }
 					append("/search/")
 					append(page)
 					append("/?keyword=")
-					append(filter.query.urlEncoded())
+					append(normalized.urlEncoded())
 				}
 
 				else -> {

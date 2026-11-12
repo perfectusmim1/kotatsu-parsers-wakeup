@@ -112,9 +112,10 @@ internal abstract class MadthemeParser(
 			append("?page=")
 			append(page.toString())
 
-			filter.query?.let {
+			filter.query?.let { query ->
+				val normalized = query.normalizeSearchQuery().ifEmpty { query.trim() }
 				append("&q=")
-				append(filter.query.urlEncoded())
+				append(normalized.urlEncoded())
 			}
 
 			append("&sort=")

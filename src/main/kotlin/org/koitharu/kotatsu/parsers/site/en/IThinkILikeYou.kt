@@ -93,7 +93,7 @@ internal class IThinkILikeYou(context: MangaLoaderContext) :
 		}
 		val body = webClient.httpGet("https://$domain/").parseHtml().body()
 		return body.selectFirst(".um-user-name, .um-name, a[href*=/user/]")?.textOrNull()
-			?: body.parseFailed("Cannot find username")
+			?: throw AuthRequiredException(source)
 	}
 
 	// endregion

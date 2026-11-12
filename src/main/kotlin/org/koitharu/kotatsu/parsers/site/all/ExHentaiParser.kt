@@ -340,17 +340,16 @@ internal class ExHentaiParser(
     }
 
     override suspend fun getUsername(): String {
+        if (!isAuthorized()) {
+            throw AuthRequiredException(source)
+        }
         val doc = webClient.httpGet("https://forums.$DOMAIN_UNAUTHORIZED/").parseHtml().body()
-        val username = doc.getElementById("userlinks")
+        return doc.getElementById("userlinks")
             ?.getElementsByAttributeValueContaining("href", "showuser=")
             ?.firstOrNull()
             ?.ownText()
-            ?: if (doc.getElementById("userlinksguest") != null) {
-                throw AuthRequiredException(source)
-            } else {
-                doc.parseFailed()
-            }
-        return username
+            ?.takeIf { it.isNotBlank() }
+            ?: throw AuthRequiredException(source)
     }
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {

@@ -400,10 +400,9 @@ internal abstract class GroupleParser(
     override suspend fun getUsername(): String {
         val root = webClient.httpGet("https://grouple.co/").parseHtml().body()
         val element = root.selectFirst("img.user-avatar") ?: throw AuthRequiredException(source)
-        val res = element.parent()?.text()
-        return if (res.isNullOrEmpty()) {
-            root.parseFailed("Cannot find username")
-        } else res
+        val res = element.parent()?.text()?.ifBlank { null }
+            ?: element.attr("alt").ifBlank { element.attr("title") }.ifBlank { null }
+        return res ?: throw AuthRequiredException(source)
     }
 
     override fun intercept(chain: Interceptor.Chain): Response {

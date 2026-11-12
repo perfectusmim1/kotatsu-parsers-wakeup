@@ -42,10 +42,15 @@ internal class HentaiVnSU(context: MangaLoaderContext) :
         context.cookieJar.getCookies(domain).any { it.name == "id" }
 
     override suspend fun getUsername(): String {
+        if (!isAuthorized()) {
+            throw AuthRequiredException(source)
+        }
         val response = webClient.httpGet("/api/user/me".toAbsoluteUrl(domain))
         if (response.isSuccessful) {
             val userObject = response.parseJson()
-            return userObject.optString("displayName", userObject.getString("username"))
+            return userObject.getStringOrNull("displayName")
+                ?: userObject.getStringOrNull("username")
+                ?: throw AuthRequiredException(source)
         } else {
             response.close()
             throw AuthRequiredException(source, IllegalStateException("Failed to get user info: ${response.code}"))

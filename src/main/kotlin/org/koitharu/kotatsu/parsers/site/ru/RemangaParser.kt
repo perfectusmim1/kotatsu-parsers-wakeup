@@ -12,6 +12,7 @@ import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
+import org.koitharu.kotatsu.parsers.exception.AuthRequiredException
 import org.koitharu.kotatsu.parsers.exception.ContentUnavailableException
 import org.koitharu.kotatsu.parsers.exception.ParseException
 import org.koitharu.kotatsu.parsers.model.*
@@ -206,10 +207,14 @@ internal class RemangaParser(
 	}
 
 	override suspend fun getUsername(): String {
+		if (!isAuthorized()) {
+			throw AuthRequiredException(source)
+		}
 		val jo = webClient.httpGet(
 			url = "https://api.${domain}/api/users/current/",
 		).parseJson()
-		return jo.getJSONObject("content").getString("username")
+		return jo.optJSONObject("content")?.getStringOrNull("username")
+			?: throw AuthRequiredException(source)
 	}
 
 	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {

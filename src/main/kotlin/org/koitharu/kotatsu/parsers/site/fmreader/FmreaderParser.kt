@@ -89,9 +89,10 @@ internal abstract class FmreaderParser(
 			append("?page=")
 			append(page.toString())
 
-			filter.query?.let {
+			filter.query?.let { query ->
+				val normalized = query.normalizeSearchQuery().ifEmpty { query.trim() }
 				append("&name=")
-				append(filter.query.urlEncoded())
+				append(normalized.urlEncoded())
 			}
 
 			// filter.author?.let {

@@ -152,11 +152,15 @@ internal abstract class ChanParser(
 	}
 
 	override suspend fun getUsername(): String {
+		if (!isAuthorized()) {
+			throw AuthRequiredException(source)
+		}
 		val doc = webClient.httpGet("https://${domain}").parseHtml().body()
-		val root = doc.requireElementById("top_user")
+		val root = doc.getElementById("top_user") ?: throw AuthRequiredException(source)
 		val a = root.getElementsByAttributeValueContaining("href", "/user/").firstOrNull()
 			?: throw AuthRequiredException(source)
 		return a.attr("href").removeSuffix('/').substringAfterLast('/')
+			.takeIf { it.isNotBlank() } ?: throw AuthRequiredException(source)
 	}
 
 	override suspend fun getRelatedManga(seed: Manga): List<Manga> {

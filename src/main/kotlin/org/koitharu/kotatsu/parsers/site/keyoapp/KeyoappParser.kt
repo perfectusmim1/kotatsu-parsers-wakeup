@@ -100,7 +100,7 @@ internal abstract class KeyoappParser(
 		}.map { div ->
 
 			val title = div.selectFirst("h3")?.text().orEmpty()
-			if (query.isNotEmpty() && title.contains(query, ignoreCase = true)) {
+			if (query.isNotEmpty() && title.containsNormalizedQuery(query)) {
 				manga.add(addManga(div))
 			}
 

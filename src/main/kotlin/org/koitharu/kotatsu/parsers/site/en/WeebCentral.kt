@@ -11,6 +11,7 @@ import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.AbstractMangaParser
+import org.koitharu.kotatsu.parsers.exception.AuthRequiredException
 import org.koitharu.kotatsu.parsers.model.ContentRating.SAFE
 import org.koitharu.kotatsu.parsers.model.ContentRating.SUGGESTIVE
 import org.koitharu.kotatsu.parsers.model.ContentType.COMICS
@@ -53,6 +54,7 @@ import org.koitharu.kotatsu.parsers.util.nullIfEmpty
 import org.koitharu.kotatsu.parsers.util.parseHtml
 import org.koitharu.kotatsu.parsers.util.parseSafe
 import org.koitharu.kotatsu.parsers.util.selectFirstOrThrow
+import org.koitharu.kotatsu.parsers.util.textOrNull
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
@@ -70,10 +72,14 @@ internal class WeebCentral(context: MangaLoaderContext) : AbstractMangaParser(co
 		context.cookieJar.getCookies(domain).any { it.name == "access_token" }
 
 	override suspend fun getUsername(): String {
+		if (!isAuthorized()) {
+			throw AuthRequiredException(source)
+		}
 		return webClient.httpGet("https://$domain/users/me/profiles")
 			.parseHtml()
-			.selectFirstOrThrow("div:has(section > .avatar) .text-4xl")
-			.text()
+			.selectFirst("div:has(section > .avatar) .text-4xl")
+			?.textOrNull()
+			?: throw AuthRequiredException(source)
 	}
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(

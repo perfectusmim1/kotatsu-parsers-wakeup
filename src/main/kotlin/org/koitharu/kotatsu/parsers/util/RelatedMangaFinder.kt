@@ -23,35 +23,49 @@ public class RelatedMangaFinder(
     }
 
     private suspend fun findRelatedImpl(scope: CoroutineScope, parser: MangaParser, seed: Manga): List<Manga> {
-        val words = HashSet<String>()
-        words += seed.title.splitByWhitespace()
-        seed.altTitles.forEach {
-            words += it.splitByWhitespace()
-        }
-        if (words.isEmpty()) {
+        val queries = buildMangaSearchQueries(seed.title, seed.altTitles)
+        if (queries.isEmpty()) {
             return emptyList()
         }
-        val results = words.map { keyword ->
+        val seedTitles = buildList(1 + seed.altTitles.size) {
+            add(seed.title)
+            addAll(seed.altTitles)
+        }
+        val sortOrder = if (SortOrder.RELEVANCE in parser.availableSortOrders) {
+            SortOrder.RELEVANCE
+        } else {
+            parser.availableSortOrders.first()
+        }
+        val scoredById = LinkedHashMap<Long, Pair<Manga, Float>>()
+        val batches = queries.map { keyword ->
             scope.async {
-                val result = parser.getList(
-                    0,
-                    if (SortOrder.RELEVANCE in parser.availableSortOrders) {
-                        SortOrder.RELEVANCE
-                    } else {
-                        parser.availableSortOrders.first()
-                    },
-                    MangaListFilter(
-                        query = keyword,
-                    ),
-                )
-                result.filter { it.id != seed.id && it.containKeyword(keyword) }
+                runCatchingCancellable {
+                    parser.getList(
+                        0,
+                        sortOrder,
+                        MangaListFilter(query = keyword),
+                    )
+                }.getOrDefault(emptyList())
             }
         }.awaitAll()
-        return results.minBy { if (it.isEmpty()) Int.MAX_VALUE else it.size }
-    }
 
-    private fun Manga.containKeyword(keyword: String): Boolean {
-        return title.contains(keyword, ignoreCase = true)
-            || altTitles.any { it.contains(keyword, ignoreCase = true) }
+        for (batch in batches) {
+            for (candidate in batch) {
+                if (candidate.id == seed.id || candidate.url == seed.url) {
+                    continue
+                }
+                val score = mangaTitleMatchDistance(candidate.title, candidate.altTitles, seedTitles)
+                if (!score.isFinite()) {
+                    continue
+                }
+                val existing = scoredById[candidate.id]
+                if (existing == null || score < existing.second) {
+                    scoredById[candidate.id] = candidate to score
+                }
+            }
+        }
+        return scoredById.values
+            .sortedBy { it.second }
+            .map { it.first }
     }
 }

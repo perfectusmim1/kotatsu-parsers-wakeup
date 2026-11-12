@@ -188,7 +188,7 @@ internal abstract class MangaPlusParser(
 			val author = it.authorName()
 
 			// filter out any other title or author which doesn't match search input
-			if (query != null && !(name.contains(query, true) || author.contains(query, true))) {
+			if (query != null && !(name.containsNormalizedQuery(query) || author.containsNormalizedQuery(query))) {
 				return@mapNotNull null
 			}
 

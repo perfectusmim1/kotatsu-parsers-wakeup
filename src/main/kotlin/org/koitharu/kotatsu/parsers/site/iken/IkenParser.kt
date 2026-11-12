@@ -72,8 +72,9 @@ internal abstract class IkenParser(
 			append(page)
 			append("&perPage=18&searchTerm=")
 
-			filter.query?.let {
-				append(filter.query.urlEncoded())
+			filter.query?.let { query ->
+				val normalized = query.normalizeSearchQuery().ifEmpty { query.trim() }
+				append(normalized.urlEncoded())
 			}
 
 			if (filter.tags.isNotEmpty()) {

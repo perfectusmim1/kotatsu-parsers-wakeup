@@ -132,10 +132,12 @@ internal abstract class MangaboxParser(
             .find { it.field == TAG }
 
         if (titleCriteria != null) {
-            val searchTerm = titleCriteria.value.toString()
+            val rawTerm = titleCriteria.value.toString()
+            val searchTerm = rawTerm.normalizeSearchQuery().ifEmpty { rawTerm.trim() }
             if (searchTerm.isNotBlank()) {
                 // Use direct search URL - WebView to be implemented later if needed for Cloudflare
-                val searchUrl = "https://${domain}/search/story/${searchTerm.replace(" ", "-").lowercase()}"
+                val slug = searchTerm.replace(" ", "-").lowercase().urlEncoded()
+                val searchUrl = "https://${domain}/search/story/$slug"
                 val doc = webClient.httpGet(searchUrl).parseHtml()
 
                 // Search results might have different structure than homepage carousel

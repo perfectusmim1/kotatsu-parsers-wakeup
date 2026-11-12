@@ -97,15 +97,12 @@ internal abstract class MadaraParser(
 	}
 
 	override suspend fun getUsername(): String {
+		if (!isAuthorized()) {
+			throw AuthRequiredException(source)
+		}
 		val body = webClient.httpGet("https://${domain}/").parseHtml().body()
-		return body.selectFirst(".c-user_name")?.text()
-			?: run {
-				throw if (body.selectFirst("#loginform") != null) {
-					AuthRequiredException(source)
-				} else {
-					body.parseFailed("Cannot find username")
-				}
-			}
+		return body.selectFirst(".c-user_name")?.textOrNull()
+			?: throw AuthRequiredException(source)
 	}
 
 	protected open val tagPrefix = "manga-genre/"
@@ -241,8 +238,9 @@ internal abstract class MadaraParser(
 				}
 				append("/?s=")
 
-				filter.query?.let {
-					append(filter.query.urlEncoded())
+				filter.query?.let { query ->
+					val normalized = query.normalizeSearchQuery().ifEmpty { query.trim() }
+					append(normalized.urlEncoded())
 				}
 
 				append("&post_type=wp-manga")
@@ -316,8 +314,9 @@ internal abstract class MadaraParser(
 
 			payload["page"] = page.toString()
 
-			filter.query?.let {
-				payload["vars[s]"] = filter.query.urlEncoded()
+			filter.query?.let { query ->
+				val normalized = query.normalizeSearchQuery().ifEmpty { query.trim() }
+				payload["vars[s]"] = normalized.urlEncoded()
 			}
 
 			if (filter.tags.isNotEmpty()) {

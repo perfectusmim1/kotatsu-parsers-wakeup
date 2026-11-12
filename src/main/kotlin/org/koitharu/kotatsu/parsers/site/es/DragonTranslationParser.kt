@@ -132,8 +132,8 @@ internal class DragonTranslationParser(context: MangaLoaderContext) :
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val fullUrl = chapter.url.toAbsoluteUrl(domain)
         val doc = webClient.httpGet(fullUrl).parseHtml()
-        return doc.select("div#chapter_imgs img").map { img ->
-            val url = img.attr("src")
+        return doc.select("div#chapter_imgs img").mapNotNull { img ->
+            val url = img.src()?.nullIfEmpty() ?: return@mapNotNull null
             MangaPage(
                 id = generateUid(url),
                 url = url,

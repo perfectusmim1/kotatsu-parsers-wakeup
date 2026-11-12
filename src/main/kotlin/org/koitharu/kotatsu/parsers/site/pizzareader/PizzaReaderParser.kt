@@ -89,7 +89,8 @@ internal abstract class PizzaReaderParser(
 
 		when {
 			!filter.query.isNullOrEmpty() -> {
-				val jsonManga = webClient.httpGet("https://$domain/api/search/${filter.query.urlEncoded()}").parseJson()
+				val normalized = filter.query.normalizeSearchQuery().ifEmpty { filter.query.trim() }
+				val jsonManga = webClient.httpGet("https://$domain/api/search/${normalized.urlEncoded()}").parseJson()
 					.getJSONArray("comics")
 				for (i in 0 until jsonManga.length()) {
 					val j = jsonManga.getJSONObject(i)

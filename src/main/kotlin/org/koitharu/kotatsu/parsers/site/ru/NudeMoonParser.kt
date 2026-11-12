@@ -183,14 +183,12 @@ internal class NudeMoonParser(
 	}
 
 	override suspend fun getUsername(): String {
+		if (!isAuthorized()) {
+			throw AuthRequiredException(source)
+		}
 		val body = webClient.httpGet("https://${domain}/").parseHtml().body()
 		return body.getElementsContainingOwnText("Профиль").firstOrNull()?.attr("href")?.substringAfterLast('/')
-			?: run {
-				throw if (body.selectFirst("form[name=\"loginform\"]") != null) {
-					AuthRequiredException(source)
-				} else {
-					body.parseFailed("Cannot find username")
-				}
-			}
+			?.takeIf { it.isNotBlank() }
+			?: throw AuthRequiredException(source)
 	}
 }

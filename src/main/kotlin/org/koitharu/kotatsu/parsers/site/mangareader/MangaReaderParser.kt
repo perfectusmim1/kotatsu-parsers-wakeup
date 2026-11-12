@@ -76,10 +76,11 @@ internal abstract class MangaReaderParser(
 			when {
 
 				!filter.query.isNullOrEmpty() -> {
+					val normalized = filter.query.normalizeSearchQuery().ifEmpty { filter.query.trim() }
 					append("/page/")
 					append(page.toString())
 					append("/?s=")
-					append(filter.query.urlEncoded())
+					append(normalized.urlEncoded())
 				}
 
 				else -> {

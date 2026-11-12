@@ -35,8 +35,9 @@ internal class MangaDass(context: MangaLoaderContext) :
 			append(domain)
 			when {
 				!filter.query.isNullOrEmpty() -> {
+					val normalized = filter.query.normalizeSearchQuery().ifEmpty { filter.query.trim() }
 					append("/search?q=")
-					append(filter.query.urlEncoded())
+					append(normalized.urlEncoded())
 					append("&page=")
 					append(page.toString())
 				}

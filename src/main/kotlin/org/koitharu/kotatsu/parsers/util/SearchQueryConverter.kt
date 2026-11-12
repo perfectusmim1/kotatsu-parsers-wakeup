@@ -42,8 +42,8 @@ internal fun convertToMangaSearchQuery(offset: Int, sortOrder: SortOrder, filter
 		filter.originalLocale?.let {
 			criterion(Include(ORIGINAL_LANGUAGE, setOf(it)))
 		}
-		filter.query?.takeIf { it.isNotBlank() }?.let {
-			criterion(Match(TITLE_NAME, it))
+		filter.query?.takeIf { it.isNotBlank() }?.let { query ->
+			criterion(Match(TITLE_NAME, query.normalizeSearchQuery().ifEmpty { query.trim() }))
 		}
 	}.build()
 }
@@ -217,7 +217,10 @@ private fun handleMatch(builder: MangaListFilter.Builder, criterion: Match<*>) {
 	val type = criterion.field.type
 
 	when (criterion.field) {
-		TITLE_NAME -> builder.query(getValue(criterion.value, type, ""))
+		TITLE_NAME -> {
+			val raw = getValue(criterion.value, type, "")
+			builder.query(raw.normalizeSearchQuery().ifEmpty { raw.trim() })
+		}
 		PUBLICATION_YEAR -> builder.year(getValue(criterion.value, type, YEAR_UNKNOWN))
 		else -> throw IllegalArgumentException("Unsupported field for Match criterion: ${criterion.field}")
 	}

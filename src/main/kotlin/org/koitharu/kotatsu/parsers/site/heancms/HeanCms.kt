@@ -60,8 +60,9 @@ internal abstract class HeanCms(
 			append(apiPath)
 			append("/query?query_string=")
 
-			filter.query?.let {
-				append(filter.query.urlEncoded())
+			filter.query?.let { query ->
+				val normalized = query.normalizeSearchQuery().ifEmpty { query.trim() }
+				append(normalized.urlEncoded())
 			}
 
 			append("&series_type=Comic&perPage=$pageSize")

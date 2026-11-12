@@ -13,6 +13,7 @@ import org.koitharu.kotatsu.parsers.bitmap.Bitmap
 import org.koitharu.kotatsu.parsers.bitmap.Rect
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
+import org.koitharu.kotatsu.parsers.exception.AuthRequiredException
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
 import org.koitharu.kotatsu.parsers.util.suspendlazy.suspendLazy
@@ -44,8 +45,12 @@ internal class MangaReaderToParser(context: MangaLoaderContext) :
 
 	// It will be easier to connect to a manga page, as the source redirects to a lot of advertising.
 	override suspend fun getUsername(): String {
+		if (!isAuthorized()) {
+			throw AuthRequiredException(source)
+		}
 		val body = webClient.httpGet("https://${domain}/user/profile").parseHtml().body()
-		return body.getElementById("pro5-name")?.attr("value") ?: body.parseFailed("Cannot find username")
+		return body.getElementById("pro5-name")?.attr("value")?.takeIf { it.isNotBlank() }
+			?: throw AuthRequiredException(source)
 	}
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(

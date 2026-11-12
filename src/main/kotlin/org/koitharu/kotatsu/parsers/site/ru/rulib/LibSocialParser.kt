@@ -41,10 +41,17 @@ internal abstract class LibSocialParser(
 		return !token.isNullOrEmpty()
 	}
 
-	override suspend fun getUsername(): String = getAuthData()
-		?.getJSONObject("auth")
-		?.getString("username")
-		?: throw AuthRequiredException(source)
+	override suspend fun getUsername(): String {
+		val data = getAuthData() ?: throw AuthRequiredException(source)
+		val token = data.optJSONObject("token")?.getStringOrNull("access_token")
+		if (token.isNullOrEmpty()) {
+			throw AuthRequiredException(source)
+		}
+		return data.optJSONObject("auth")
+			?.getStringOrNull("username")
+			?.takeIf { it.isNotBlank() }
+			?: throw AuthRequiredException(source)
+	}
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(
 		SortOrder.UPDATED,

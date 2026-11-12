@@ -58,7 +58,8 @@ internal abstract class FoolSlideParser(
 					append(searchUrl)
 				}
 
-				webClient.httpPost(url, "search=${filter.query.urlEncoded()}").parseHtml()
+				val normalized = filter.query.normalizeSearchQuery().ifEmpty { filter.query.trim() }
+				webClient.httpPost(url, "search=${normalized.urlEncoded()}").parseHtml()
 			}
 
 			else -> {

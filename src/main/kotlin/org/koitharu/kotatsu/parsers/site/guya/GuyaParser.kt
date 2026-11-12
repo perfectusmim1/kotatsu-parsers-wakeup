@@ -5,6 +5,7 @@ import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.SinglePageMangaParser
 import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.util.containsNormalizedQuery
 import org.koitharu.kotatsu.parsers.util.generateUid
 import org.koitharu.kotatsu.parsers.util.parseJson
 import org.koitharu.kotatsu.parsers.util.removeSuffix
@@ -53,7 +54,7 @@ internal abstract class GuyaParser(
 			val key = keys.next()
 			if (json.get(key) is JSONObject) {
 				if (query.isNotEmpty()) {
-					if (key.lowercase().contains(query.lowercase())) manga.add(addManga(json.getJSONObject(key), key))
+					if (key.containsNormalizedQuery(query)) manga.add(addManga(json.getJSONObject(key), key))
 				} else manga.add(addManga(json.getJSONObject(key), key))
 			}
 		}
