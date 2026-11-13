@@ -10,13 +10,31 @@ import okhttp3.internal.closeQuietly
 import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.model.community.SourceComment
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentEngine
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentPage
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentSort
+import org.koitharu.kotatsu.parsers.model.community.SourceCommunityCapabilities
+import org.koitharu.kotatsu.parsers.model.community.SourceMangaCommunityInfo
+import org.koitharu.kotatsu.parsers.model.community.SourceWidgetContext
+import org.koitharu.kotatsu.parsers.site.community.CusdisDetector
+import org.koitharu.kotatsu.parsers.site.community.DisqusDetector
+import org.koitharu.kotatsu.parsers.site.community.GraphCommentDetector
+import org.koitharu.kotatsu.parsers.site.community.HyvorTalkDetector
+import org.koitharu.kotatsu.parsers.site.community.WidgetDetectors
+import org.koitharu.kotatsu.parsers.site.community.WordPressCommentsHelper
+import org.koitharu.kotatsu.parsers.site.community.WpDiscuzCommunityHelper
+import org.koitharu.kotatsu.parsers.site.community.parseCompactCount
+import org.koitharu.kotatsu.parsers.site.community.parseFloatRating
 import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.Base64
 import java.util.EnumSet
+import java.util.Locale
 
 internal abstract class MangaReaderParser(
 	context: MangaLoaderContext,
@@ -24,7 +42,7 @@ internal abstract class MangaReaderParser(
 	domain: String,
 	pageSize: Int,
 	searchPageSize: Int,
-) : PagedMangaParser(context, source, pageSize, searchPageSize), Interceptor {
+) : PagedMangaParser(context, source, pageSize, searchPageSize), Interceptor, MangaSourceCommunityProvider {
 
 	override val configKeyDomain = ConfigKey.Domain(domain)
 
@@ -412,5 +430,330 @@ internal abstract class MangaReaderParser(
 		return resolver.resolveManga(
 			this, url, generateUid(url),
 		)
+	}
+
+	private val wpCommentsHelper: WordPressCommentsHelper by lazy {
+		WordPressCommentsHelper(
+			context = context,
+			webClient = webClient,
+			source = source,
+			domainProvider = { domain },
+			requestHeadersProvider = ::getRequestHeaders,
+		)
+	}
+
+	private val wpDiscuzHelper: WpDiscuzCommunityHelper by lazy {
+		WpDiscuzCommunityHelper(
+			context = context,
+			webClient = webClient,
+			source = source,
+			domainProvider = { domain },
+			requestHeadersProvider = ::getRequestHeaders,
+		)
+	}
+
+	override val capabilities: SourceCommunityCapabilities = SourceCommunityCapabilities(
+		supportsStats = true,
+		supportsRating = false,
+		maxRatingScale = 10,
+		supportsNativeComments = true,
+		supportsCommentPosting = true,
+		supportsReplies = true,
+		supportsCommentLikes = true,
+		supportsCommentDislikes = true,
+		supportsCommentEditing = true,
+		supportsCommentDeleting = true,
+		supportsChapterComments = true,
+		commentEngine = SourceCommentEngine.WORDPRESS,
+		supportsWidgetFallback = true,
+		requiresAuthForRating = false,
+		requiresAuthForComment = false,
+		supportedSorts = setOf(
+			SourceCommentSort.NEWEST,
+			SourceCommentSort.OLDEST,
+			SourceCommentSort.TOP,
+		),
+	)
+
+	override suspend fun getMangaCommunityInfo(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceMangaCommunityInfo {
+		val pageUrl = resolveCommunityPageUrl(manga, chapter)
+		val doc = webClient.httpGet(pageUrl).parseHtml()
+		return parseCommunityInfoFromDoc(doc, pageUrl)
+	}
+
+	internal fun parseCommunityInfoFromDoc(doc: Document, pageUrl: String = doc.location()): SourceMangaCommunityInfo {
+		val ratingEl = doc.selectFirst(".rating [itemprop=ratingValue]")
+			?: doc.selectFirst("[itemprop=ratingValue]")
+		val rawRating = ratingEl?.let { el ->
+			(el.attrOrNull("content") ?: el.textOrNull())?.let(::parseFloatRating)
+		}
+			?: doc.selectFirst(".rt .rating .num, .rating-prc .num, .rating .num, .numscore")
+				?.textOrNull()?.let(::parseFloatRating)
+
+		val bestScale = doc.selectFirst("[itemprop=bestRating]")?.let { el ->
+			(el.attrOrNull("content") ?: el.textOrNull())?.toIntOrNull()
+		}?.takeIf { it in 1..10 } ?: 10
+
+		val ratingCount = doc.selectFirst("meta[itemprop=ratingCount], [itemprop=ratingCount]")?.let { el ->
+			(el.attrOrNull("content") ?: el.textOrNull())?.let { parseCompactCount(it)?.toInt() }
+		}
+			?: doc.selectFirst(".rating .votes, .rating-prc .votes, .rt .votes")
+				?.textOrNull()?.let { parseCompactCount(it)?.toInt() }
+
+		val followCount = doc.selectFirst(".bmc, .seriestucon .bmc, .infox .bmc, [class*=bookmark-count], .follow-count")
+			?.textOrNull()?.let(::parseCompactCount)
+
+		var viewCount = doc.selectFirst(".post-views .count, .manga-views, .views-count")
+			?.textOrNull()?.let(::parseCompactCount)
+		if (viewCount == null) {
+			for (item in doc.select(".tsinfo .imptdt, .fmed")) {
+				val label = item.text().lowercase(Locale.ROOT)
+				if ("view" in label || "görüntülenme" in label || "okunma" in label || "visita" in label) {
+					val valueText = item.selectFirst("i, span:last-child, .dt")?.textOrNull() ?: item.ownText().nullIfEmpty()
+					viewCount = parseCompactCount(valueText ?: item.text())
+					if (viewCount != null) break
+				}
+			}
+		}
+		if (viewCount == null) {
+			for (row in doc.select(".infotable tr")) {
+				val heading = row.selectFirst("td:first-child")?.text()?.lowercase(Locale.ROOT) ?: continue
+				if ("view" in heading || "görüntülenme" in heading || "okunma" in heading || "visita" in heading) {
+					val valueText = row.selectFirst("td:last-child")?.textOrNull()
+					viewCount = parseCompactCount(valueText)
+					if (viewCount != null) break
+				}
+			}
+		}
+
+		val commentCount = doc.selectFirst("#wpdcom .wpd-thread-info[data-comments-count]")
+			?.attrOrNull("data-comments-count")?.toIntOrNull()
+			?: doc.selectFirst(".comments-area .comments-title, .comment-count")
+				?.textOrNull()?.let { parseCompactCount(it)?.toInt() }
+
+		val engine = detectCommunityCommentEngine(doc, pageUrl)
+
+		return SourceMangaCommunityInfo(
+			averageRating = rawRating?.let { (it / bestScale.toFloat()).coerceIn(0f, 1f) },
+			rawRating = rawRating,
+			rawScale = bestScale,
+			ratingCount = ratingCount,
+			viewCount = viewCount,
+			followCount = followCount,
+			commentCount = commentCount,
+			canCurrentUserRate = false,
+			canCurrentUserComment = engine != SourceCommentEngine.NONE,
+		)
+	}
+
+	override suspend fun getComments(
+		manga: Manga,
+		chapter: MangaChapter?,
+		page: Int,
+		sort: SourceCommentSort,
+		cursor: String?,
+	): SourceCommentPage {
+		val pageUrl = resolveCommunityPageUrl(manga, chapter)
+		val doc = webClient.httpGet(pageUrl).parseHtml()
+		return when (val engine = detectCommunityCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.WPDISCUZ -> wpDiscuzHelper.getComments(
+				doc = doc,
+				pageUrl = pageUrl,
+				page = page,
+				sort = sort,
+				cursor = cursor,
+			)
+			SourceCommentEngine.GRAPHCOMMENT,
+			SourceCommentEngine.DISQUS,
+			SourceCommentEngine.HYVOR,
+			SourceCommentEngine.CUSDIS -> SourceCommentPage(
+				comments = emptyList(),
+				page = page,
+				hasNextPage = false,
+				widgetContext = resolveWidgetContextFromDoc(doc, pageUrl, engine),
+				engine = engine,
+			)
+			SourceCommentEngine.WORDPRESS -> wpCommentsHelper.getComments(
+				doc = doc,
+				pageUrl = pageUrl,
+				postId = wpCommentsHelper.extractPostId(doc),
+				page = page,
+				sort = sort,
+			)
+			else -> SourceCommentPage(
+				comments = emptyList(),
+				page = page,
+				hasNextPage = false,
+				engine = SourceCommentEngine.NONE,
+			)
+		}
+	}
+
+	override suspend fun postComment(
+		manga: Manga,
+		text: String,
+		chapter: MangaChapter?,
+		parentComment: SourceComment?,
+		isSpoiler: Boolean,
+	): SourceComment {
+		val pageUrl = resolveCommunityPageUrl(manga, chapter)
+		val doc = webClient.httpGet(pageUrl).parseHtml()
+		return when (detectCommunityCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.WPDISCUZ -> wpDiscuzHelper.postComment(
+				doc = doc,
+				pageUrl = pageUrl,
+				text = text,
+				parentComment = parentComment,
+			)
+			SourceCommentEngine.WORDPRESS -> wpCommentsHelper.postComment(
+				doc = doc,
+				pageUrl = pageUrl,
+				postId = wpCommentsHelper.extractPostId(doc),
+				text = text,
+				parentComment = parentComment,
+			)
+			else -> throw UnsupportedOperationException("Native comment posting is not supported for this source")
+		}
+	}
+
+	override suspend fun editComment(
+		manga: Manga,
+		comment: SourceComment,
+		newText: String,
+		chapter: MangaChapter?,
+	): SourceComment {
+		val pageUrl = resolveCommunityPageUrl(manga, chapter)
+		val doc = webClient.httpGet(pageUrl).parseHtml()
+		return when (detectCommunityCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.WPDISCUZ -> wpDiscuzHelper.editComment(doc, pageUrl, comment, newText)
+			else -> throw UnsupportedOperationException("Editing comments is not supported for this engine")
+		}
+	}
+
+	override suspend fun deleteComment(
+		manga: Manga,
+		comment: SourceComment,
+		chapter: MangaChapter?,
+	) {
+		val pageUrl = resolveCommunityPageUrl(manga, chapter)
+		val doc = webClient.httpGet(pageUrl).parseHtml()
+		when (detectCommunityCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.WPDISCUZ -> wpDiscuzHelper.deleteComment(doc, pageUrl, comment)
+			else -> throw UnsupportedOperationException("Deleting comments is not supported for this engine")
+		}
+	}
+
+	override suspend fun toggleCommentLike(
+		manga: Manga,
+		comment: SourceComment,
+		isLike: Boolean,
+		chapter: MangaChapter?,
+	): SourceComment {
+		val pageUrl = resolveCommunityPageUrl(manga, chapter)
+		val doc = webClient.httpGet(pageUrl).parseHtml()
+		return when (detectCommunityCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.WPDISCUZ -> wpDiscuzHelper.toggleCommentLike(doc, pageUrl, comment, isLike)
+			else -> throw UnsupportedOperationException("Comment reactions are not supported for this engine")
+		}
+	}
+
+	override suspend fun resolveWidgetContext(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceWidgetContext? {
+		val pageUrl = resolveCommunityPageUrl(manga, chapter)
+		val doc = webClient.httpGet(pageUrl).parseHtml()
+		return resolveWidgetContextFromDoc(doc, pageUrl, detectCommunityCommentEngine(doc, pageUrl))
+	}
+
+	private fun detectCommunityCommentEngine(doc: Document, pageUrl: String): SourceCommentEngine {
+		if (wpDiscuzHelper.isWpDiscuzPresent(doc)) return SourceCommentEngine.WPDISCUZ
+		if (detectGraphComment(doc, pageUrl) != null) return SourceCommentEngine.GRAPHCOMMENT
+		if (detectDisqus(doc, pageUrl) != null) return SourceCommentEngine.DISQUS
+		if (HyvorTalkDetector.detect(doc, pageUrl) != null) return SourceCommentEngine.HYVOR
+		if (CusdisDetector.detect(doc, pageUrl) != null) return SourceCommentEngine.CUSDIS
+		if (doc.selectFirst("#commentform, .commentlist, ol.comment-list, ul.comment-list, input[name=comment_post_ID]") != null ||
+			wpCommentsHelper.extractPostId(doc) != null
+		) {
+			return SourceCommentEngine.WORDPRESS
+		}
+		return SourceCommentEngine.NONE
+	}
+
+	private fun resolveWidgetContextFromDoc(
+		doc: Document,
+		pageUrl: String,
+		engine: SourceCommentEngine,
+	): SourceWidgetContext? {
+		return when (engine) {
+			SourceCommentEngine.GRAPHCOMMENT -> detectGraphComment(doc, pageUrl)
+			SourceCommentEngine.DISQUS -> detectDisqus(doc, pageUrl)
+			SourceCommentEngine.HYVOR -> HyvorTalkDetector.detect(doc, pageUrl)
+			SourceCommentEngine.CUSDIS -> CusdisDetector.detect(doc, pageUrl)
+			SourceCommentEngine.WPDISCUZ, SourceCommentEngine.WORDPRESS, SourceCommentEngine.NONE -> null
+			else -> WidgetDetectors.detect(doc, pageUrl)
+		}
+	}
+
+	private fun detectGraphComment(doc: Document, pageUrl: String): SourceWidgetContext? {
+		val detected = GraphCommentDetector.detect(doc, pageUrl) ?: return null
+		val scriptsText = doc.select("script").joinToString("\n") { it.data() }
+		val camelId = REGEX_GC_CAMEL_ID.find(scriptsText)?.groupValues?.getOrNull(1)?.nullIfEmpty()
+		if (camelId != null && detected.shortname != camelId) {
+			val identifier = detected.identifier ?: camelId
+			return detected.copy(
+				shortname = camelId,
+				widgetUrl = "https://graphcomment.com/js/integration.js?graphcomment_id=$camelId",
+				inlineHtml = GraphCommentDetector.buildInlineHtml(
+					websiteId = camelId,
+					identifier = identifier,
+					pageUrl = pageUrl,
+				),
+			)
+		}
+		return detected
+	}
+
+	private fun detectDisqus(doc: Document, pageUrl: String): SourceWidgetContext? {
+		DisqusDetector.detect(doc, pageUrl)?.let { return it }
+		val scriptsAndOnclick = buildString {
+			for (s in doc.select("script")) {
+				appendLine(s.data())
+			}
+			for (el in doc.select("[onclick*=disqus]")) {
+				appendLine(el.attr("onclick"))
+			}
+		}
+		val shortname = REGEX_LOAD_DISQUS.find(scriptsAndOnclick)?.groupValues?.getOrNull(1)?.nullIfEmpty()
+			?: return null
+		val resolvedPageUrl = doc.selectFirst("link[rel=canonical]")?.attrOrNull("href") ?: pageUrl
+		val title = doc.title().nullIfEmpty()
+		return SourceWidgetContext(
+			engine = SourceCommentEngine.DISQUS,
+			pageUrl = resolvedPageUrl,
+			widgetUrl = "https://$shortname.disqus.com/embed.js",
+			shortname = shortname,
+			title = title,
+			inlineHtml = DisqusDetector.buildInlineHtml(
+				shortname = shortname,
+				pageUrl = resolvedPageUrl,
+				title = title,
+			),
+			baseUrl = resolvedPageUrl,
+			allowedHostSuffixes = DisqusDetector.ALLOWED_HOST_SUFFIXES,
+		)
+	}
+
+	private fun resolveCommunityPageUrl(manga: Manga, chapter: MangaChapter?): String {
+		val rawUrl = chapter?.url?.takeIf { it.isNotBlank() } ?: manga.url
+		return rawUrl.toAbsoluteUrl(domain)
+	}
+
+	private companion object {
+		val REGEX_GC_CAMEL_ID = Regex("""graphcommentId\s*[:=]\s*['"]([a-zA-Z0-9_-]+)['"]""")
+		val REGEX_LOAD_DISQUS = Regex("""load_disqus\s*\(\s*['"]([a-zA-Z0-9-]+)['"]\s*\)""")
 	}
 }

@@ -4,7 +4,6 @@ import okhttp3.Interceptor
 import okhttp3.Request
 import org.jsoup.Jsoup
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
-import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
@@ -34,7 +33,7 @@ internal abstract class MangaFireParser(
     private val siteLang: String,
     // Matches the `limit` sent to /api/titles, so the paginator's first guess
     // for page 2 lines up with what the API actually returns.
-) : PagedMangaParser(context, source, 50), Interceptor, MangaParserAuthProvider {
+) : PagedMangaParser(context, source, 50), Interceptor {
 
     override val configKeyDomain = ConfigKey.Domain("mangafire.to")
 
@@ -581,11 +580,6 @@ internal abstract class MangaFireParser(
     }
 
     override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
-
-    override val authUrl: String get() = "https://$domain"
-    override suspend fun isAuthorized(): Boolean = true
-    override suspend fun getUsername(): String = ""
-
 
     private fun extractHid(url: String): String {
         val lastPart = url.removeSuffix("/").substringAfterLast("/")

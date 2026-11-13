@@ -7,9 +7,12 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
+import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
+import org.koitharu.kotatsu.parsers.exception.AuthRequiredException
 import org.koitharu.kotatsu.parsers.exception.ParseException
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
@@ -23,15 +26,29 @@ import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.model.RATING_UNKNOWN
 import org.koitharu.kotatsu.parsers.model.SortOrder
 import org.koitharu.kotatsu.parsers.model.YEAR_UNKNOWN
+import org.koitharu.kotatsu.parsers.model.community.SourceComment
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentEngine
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentPage
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentSort
+import org.koitharu.kotatsu.parsers.model.community.SourceCommunityCapabilities
+import org.koitharu.kotatsu.parsers.model.community.SourceMangaCommunityInfo
+import org.koitharu.kotatsu.parsers.model.community.SourceWidgetContext
+import org.koitharu.kotatsu.parsers.site.community.WidgetDetectors
+import org.koitharu.kotatsu.parsers.site.community.parseCompactCount
+import org.koitharu.kotatsu.parsers.site.community.parseFloatRating
 import org.koitharu.kotatsu.parsers.util.attrAsAbsoluteUrlOrNull
 import org.koitharu.kotatsu.parsers.util.attrAsRelativeUrl
 import org.koitharu.kotatsu.parsers.util.attrOrNull
 import org.koitharu.kotatsu.parsers.util.generateUid
+import org.koitharu.kotatsu.parsers.util.getCookies
+import org.koitharu.kotatsu.parsers.util.insertCookies
 import org.koitharu.kotatsu.parsers.util.mapChapters
+import org.koitharu.kotatsu.parsers.util.nullIfEmpty
 import org.koitharu.kotatsu.parsers.util.parseHtml
 import org.koitharu.kotatsu.parsers.util.parseJson
 import org.koitharu.kotatsu.parsers.util.parseSafe
 import org.koitharu.kotatsu.parsers.util.src
+import org.koitharu.kotatsu.parsers.util.textOrNull
 import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 import org.koitharu.kotatsu.parsers.util.toRelativeUrl
 import java.text.SimpleDateFormat
@@ -41,9 +58,67 @@ import java.util.Locale
 
 @MangaSourceParser("MANGABUFF", "MangaBuff", "ru")
 internal class MangaBuff(context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.MANGABUFF, pageSize = 24) {
+	PagedMangaParser(context, MangaParserSource.MANGABUFF, pageSize = 24),
+	MangaParserAuthProvider,
+	MangaSourceCommunityProvider {
 
 	override val configKeyDomain = ConfigKey.Domain("mangabuff.ru")
+
+	override val authUrl: String
+		get() = "https://$domain/login"
+
+	override val signUpUrl: String
+		get() = "https://$domain/reg"
+
+	override suspend fun isAuthorized(): Boolean {
+		val cookies = context.cookieJar.getCookies(domain)
+		if (cookies.any { it.name.startsWith("remember_web", ignoreCase = true) && it.value.isNotBlank() }) {
+			return true
+		}
+		if (cookies.none { it.name.contains("session", ignoreCase = true) && it.value.isNotBlank() }) {
+			return false
+		}
+		return runCatching {
+			val doc = webClient.httpGet("https://$domain/").parseHtml()
+			extractUsernameFromDoc(doc) != null
+		}.getOrDefault(false)
+	}
+
+	override suspend fun getUsername(): String {
+		val doc = runCatching { webClient.httpGet("https://$domain/").parseHtml() }
+			.getOrElse { throw AuthRequiredException(source, it) }
+		return extractUsernameFromDoc(doc) ?: throw AuthRequiredException(source)
+	}
+
+	override suspend fun logout() {
+		runCatching {
+			val token = getToken()
+			val headers = Headers.Builder()
+				.add("X-Requested-With", "XMLHttpRequest")
+				.add("X-CSRF-TOKEN", token)
+				.build()
+			webClient.httpPost("https://$domain/logout".toHttpUrl(), mapOf("_token" to token), headers).close()
+		}
+		context.cookieJar.insertCookies(domain, "mangabuff_session=; Max-Age=0; Path=/")
+		context.clearAuthValues(source)
+	}
+
+	override val capabilities: SourceCommunityCapabilities = SourceCommunityCapabilities(
+		supportsStats = true,
+		supportsRating = false,
+		maxRatingScale = 10,
+		supportsNativeComments = true,
+		supportsCommentPosting = false,
+		supportsReplies = true,
+		supportsCommentLikes = false,
+		supportsCommentDislikes = false,
+		supportsChapterComments = false,
+		commentEngine = SourceCommentEngine.NATIVE,
+		supportsWidgetFallback = true,
+		requiresAuthForRating = true,
+		requiresAuthForComment = true,
+		supportedSorts = setOf(SourceCommentSort.NEWEST),
+	)
 
 	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
 		super.onCreateConfig(keys)
@@ -344,6 +419,139 @@ internal class MangaBuff(context: MangaLoaderContext) :
 		}
 		csrfToken = token
 		return token
+	}
+
+	override suspend fun getMangaCommunityInfo(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceMangaCommunityInfo {
+		val pageUrl = manga.url.toAbsoluteUrl(domain)
+		val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
+		val rawRating = doc?.selectFirst("[itemprop=ratingValue], .manga__rating")
+			?.let { (it.attrOrNull("content") ?: it.textOrNull())?.let(::parseFloatRating) }
+		val ratingCount = doc?.selectFirst("[itemprop=ratingCount]")
+			?.attrOrNull("content")
+			?.toIntOrNull()
+		val viewCount = doc?.selectFirst(".manga__views")
+			?.textOrNull()
+			?.filter { it.isDigit() }
+			?.toLongOrNull()
+		val followCount = doc?.selectFirst(".manga[data-fav-count]")
+			?.attrOrNull("data-fav-count")
+			?.toLongOrNull()
+		val commentCount = doc?.selectFirst(".comments[data-count]")
+			?.attrOrNull("data-count")
+			?.toIntOrNull()
+		val authorized = runCatching { isAuthorized() }.getOrDefault(false)
+		val username = if (authorized) runCatching { getUsername() }.getOrNull() else null
+
+		return SourceMangaCommunityInfo(
+			averageRating = rawRating?.let { (it / 10f).coerceIn(0f, 1f) },
+			rawRating = rawRating,
+			rawScale = 10,
+			ratingCount = ratingCount,
+			viewCount = viewCount,
+			followCount = followCount,
+			commentCount = commentCount,
+			canCurrentUserComment = authorized,
+			currentUsername = username,
+		)
+	}
+
+	override suspend fun getComments(
+		manga: Manga,
+		chapter: MangaChapter?,
+		page: Int,
+		sort: SourceCommentSort,
+		cursor: String?,
+	): SourceCommentPage {
+		val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
+		if (page == 1 && chapter == null) {
+			val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
+			if (doc != null) {
+				val total = doc.selectFirst(".comments[data-count]")?.attrOrNull("data-count")?.toIntOrNull()
+				val items = doc.select(".comments__list > .comments__item").mapNotNull { el ->
+					parseMangaBuffComment(el)
+				}
+				if (items.isNotEmpty()) {
+					return SourceCommentPage(
+						comments = items,
+						page = 1,
+						hasNextPage = false,
+						totalCount = total,
+						engine = SourceCommentEngine.NATIVE,
+					)
+				}
+			}
+		}
+		val widget = resolveWidgetContext(manga, chapter)
+		return SourceCommentPage(
+			comments = emptyList(),
+			page = page,
+			hasNextPage = false,
+			widgetContext = widget,
+			engine = widget.engine,
+		)
+	}
+
+	override suspend fun resolveWidgetContext(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceWidgetContext {
+		val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
+		val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
+		if (doc != null) {
+			WidgetDetectors.detect(doc, pageUrl)?.let { return it }
+		}
+		return SourceWidgetContext(
+			engine = SourceCommentEngine.CUSTOM_WIDGET,
+			pageUrl = pageUrl,
+			widgetUrl = pageUrl,
+			title = doc?.title()?.nullIfEmpty() ?: manga.title,
+			baseUrl = pageUrl,
+		)
+	}
+
+	private fun parseMangaBuffComment(el: Element, parentId: String? = null): SourceComment? {
+		val id = el.id().removePrefix("comment_").nullIfEmpty() ?: return null
+		val author = el.selectFirst(".comments__name")?.textOrNull() ?: "Аноним"
+		val avatar = el.selectFirst(".comments__avatar img:not(.frame)")?.attrAsAbsoluteUrlOrNull("src")
+		val dateText = el.selectFirst(".comments__date")?.textOrNull()
+		val epochMs = el.attrOrNull("data-time")?.toLongOrNull()?.let { it * 1000L }
+		val bodyEl = el.selectFirst("> .comments__inner .comments__body") ?: el.selectFirst(".comments__body")
+		val body = bodyEl?.text()?.trim().orEmpty()
+		val bodyHtml = bodyEl?.html()?.nullIfEmpty()
+		val score = el.selectFirst("> .comments__inner .comments__rating-number")?.textOrNull()?.toIntOrNull() ?: 0
+		val replies = el.select("> .comments__children > .comments__item, > .comments__replies > .comments__item")
+			.mapNotNull { child -> parseMangaBuffComment(child, parentId = id) }
+
+		return SourceComment(
+			id = id,
+			authorName = author,
+			authorAvatarUrl = avatar,
+			body = body,
+			bodyHtml = bodyHtml,
+			createdAtEpochMs = epochMs,
+			createdAtText = dateText,
+			likesCount = score.coerceAtLeast(0),
+			dislikesCount = (-score).coerceAtLeast(0),
+			repliesCount = replies.size,
+			parentId = parentId,
+			replies = replies,
+		)
+	}
+
+	private fun extractUsernameFromDoc(doc: Document): String? {
+		if (doc.selectFirst("a[href$=/login]") != null && doc.selectFirst(".header-profile, .header__profile") == null) {
+			return null
+		}
+		return doc.selectFirst(".header-profile__name, .header__profile-name, .user-menu__name, .header__user-name")
+			?.textOrNull()
+			?: doc.selectFirst(".header-profile a[href*=/users/], .header__profile a[href*=/users/]")
+				?.attrOrNull("title")
+				?.nullIfEmpty()
+			?: doc.selectFirst(".header-profile a[href*=/users/], .header__profile a[href*=/users/]")
+				?.textOrNull()
 	}
 
 	private companion object {

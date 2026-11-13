@@ -26,6 +26,21 @@ internal object MangaLoaderContextMock : MangaLoaderContext() {
 
 	override val cookieJar = InMemoryCookieJar()
 
+	private val authValues = HashMap<String, String>()
+
+	override suspend fun getAuthValue(source: MangaSource, key: String): String? =
+		authValues["${source.name}:$key"]
+
+	override suspend fun setAuthValue(source: MangaSource, key: String, value: String?) {
+		val k = "${source.name}:$key"
+		if (value == null) authValues.remove(k) else authValues[k] = value
+	}
+
+	override suspend fun clearAuthValues(source: MangaSource) {
+		val prefix = "${source.name}:"
+		authValues.keys.removeAll { it.startsWith(prefix) }
+	}
+
 	override val httpClient: OkHttpClient = OkHttpClient.Builder()
 		.cookieJar(cookieJar)
 		.permissiveSSL()

@@ -7,6 +7,7 @@ import okhttp3.Request
 import okhttp3.Response
 import org.koitharu.kotatsu.parsers.MangaParser
 import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
+import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.model.search.MangaSearchQuery
 import org.koitharu.kotatsu.parsers.util.mergeWith
@@ -17,6 +18,9 @@ internal class MangaParserWrapper(
 
 	override val authorizationProvider: MangaParserAuthProvider?
 		get() = delegate as? MangaParserAuthProvider
+
+	override val communityProvider: MangaSourceCommunityProvider?
+		get() = delegate.communityProvider ?: (delegate as? MangaSourceCommunityProvider)
 
 	@Deprecated("Too complex. Use getList with filter instead")
 	override suspend fun getList(query: MangaSearchQuery): List<Manga> = withContext(Dispatchers.Default) {

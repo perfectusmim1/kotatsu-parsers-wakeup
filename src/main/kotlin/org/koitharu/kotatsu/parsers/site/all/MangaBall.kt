@@ -15,7 +15,9 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.HttpStatusException
+import org.jsoup.Jsoup
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
@@ -35,17 +37,31 @@ import org.koitharu.kotatsu.parsers.model.MangaState
 import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.model.RATING_UNKNOWN
 import org.koitharu.kotatsu.parsers.model.SortOrder
+import org.koitharu.kotatsu.parsers.model.community.SourceComment
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentEngine
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentPage
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentSort
+import org.koitharu.kotatsu.parsers.model.community.SourceCommunityCapabilities
+import org.koitharu.kotatsu.parsers.model.community.SourceMangaCommunityInfo
+import org.koitharu.kotatsu.parsers.model.community.SourceWidgetContext
 import org.koitharu.kotatsu.parsers.network.OkHttpWebClient
 import org.koitharu.kotatsu.parsers.network.WebClient
+import org.koitharu.kotatsu.parsers.site.community.WidgetDetectors
+import org.koitharu.kotatsu.parsers.site.community.nestCommentsByParentId
+import org.koitharu.kotatsu.parsers.site.community.parseIsoTimestamp
 import org.koitharu.kotatsu.parsers.util.LinkResolver
 import org.koitharu.kotatsu.parsers.util.await
 import org.koitharu.kotatsu.parsers.util.generateUid
+import org.koitharu.kotatsu.parsers.util.json.getBooleanOrDefault
 import org.koitharu.kotatsu.parsers.util.json.getStringOrNull
 import org.koitharu.kotatsu.parsers.util.nullIfEmpty
 import org.koitharu.kotatsu.parsers.util.oneOrThrowIfMany
+import org.koitharu.kotatsu.parsers.util.parseHtml
 import org.koitharu.kotatsu.parsers.util.parseJson
 import org.koitharu.kotatsu.parsers.util.parseSafe
+import org.koitharu.kotatsu.parsers.util.runCatchingCancellable
 import org.koitharu.kotatsu.parsers.util.suspendlazy.suspendLazy
+import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
@@ -58,7 +74,9 @@ internal abstract class MangaBallParser(
 	context: MangaLoaderContext,
 	source: MangaParserSource,
 	private val siteLanguages: Set<String>,
-) : PagedMangaParser(context, source, pageSize = PAGE_SIZE), Interceptor {
+) : PagedMangaParser(context, source, pageSize = PAGE_SIZE),
+	Interceptor,
+	MangaSourceCommunityProvider {
 
 	override val configKeyDomain = ConfigKey.Domain(DOMAIN)
 
@@ -547,6 +565,250 @@ internal abstract class MangaBallParser(
 		else -> null
 	}
 
+	override val capabilities: SourceCommunityCapabilities = SourceCommunityCapabilities(
+		supportsStats = true,
+		supportsRating = false,
+		maxRatingScale = 10,
+		supportsNativeComments = true,
+		supportsCommentPosting = false,
+		supportsReplies = false,
+		supportsCommentLikes = false,
+		supportsCommentDislikes = false,
+		supportsCommentEditing = false,
+		supportsCommentDeleting = false,
+		supportsChapterComments = true,
+		commentEngine = SourceCommentEngine.NATIVE,
+		supportsWidgetFallback = true,
+		requiresAuthForRating = true,
+		requiresAuthForComment = true,
+		supportedSorts = setOf(SourceCommentSort.NEWEST),
+	)
+
+	override suspend fun getMangaCommunityInfo(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceMangaCommunityInfo = coroutineScope {
+		val knownId = titleIdFromUrl(manga.url)
+		val titleDeferred = async { getTitle(knownId ?: manga.url) }
+		val seriesCommentsDeferred = knownId?.let { id ->
+			async {
+				runCatchingCancellable {
+					fetchCommentsPageJson(id, "title", page = 1, limit = 1)
+				}.getOrNull()
+			}
+		}
+		val chapterCommentsDeferred = chapter?.let { ch ->
+			async {
+				runCatchingCancellable {
+					fetchCommentsPageJson(ch.url, "chapter", page = 1, limit = 1)
+				}.getOrNull()
+			}
+		}
+
+		val data = titleDeferred.await()
+		val titleId = data.getTitleId() ?: knownId ?: manga.url
+		val seriesComments = seriesCommentsDeferred?.await()
+			?: runCatchingCancellable {
+				fetchCommentsPageJson(titleId, "title", page = 1, limit = 1)
+			}.getOrNull()
+		val chapterComments = chapterCommentsDeferred?.await()
+
+		val stats = data.optJSONObject("stats")
+		val ratings = data.optJSONObject("ratings")
+		val rawRating = ratings?.optDouble("rating_average", Double.NaN)
+			?.takeIf { !it.isNaN() && it > 0.0 }
+			?.toFloat()
+		val ratingCount = ratings?.optInt("total_rating", -1)?.takeIf { it >= 0 }
+		val viewCount = stats?.optLong("views", -1L)?.takeIf { it >= 0L }
+		val followCount = stats?.optLong("followers", -1L)?.takeIf { it >= 0L }
+		val commentCount = seriesComments?.optJSONObject("pagination")?.optInt("total", -1)?.takeIf { it >= 0 }
+		val chapterCommentCount = chapterComments?.optJSONObject("pagination")?.optInt("total", -1)?.takeIf { it >= 0 }
+
+		SourceMangaCommunityInfo(
+			averageRating = rawRating?.let { (it / 10f).coerceIn(0f, 1f) },
+			rawRating = rawRating,
+			rawScale = 10,
+			ratingCount = ratingCount,
+			viewCount = viewCount,
+			followCount = followCount,
+			commentCount = commentCount,
+			chapterCommentCount = chapterCommentCount,
+		)
+	}
+
+	override suspend fun getComments(
+		manga: Manga,
+		chapter: MangaChapter?,
+		page: Int,
+		sort: SourceCommentSort,
+		cursor: String?,
+	): SourceCommentPage {
+		val (objectId, objectType) = if (chapter != null) {
+			chapter.url to "chapter"
+		} else {
+			val resolvedId = titleIdFromUrl(manga.url)
+				?: getTitle(manga.url).getTitleId()
+				?: manga.url
+			resolvedId to "title"
+		}
+
+		val json = runCatchingCancellable {
+			fetchCommentsPageJson(objectId, objectType, page = page, limit = COMMENTS_PAGE_SIZE)
+		}.getOrElse { err ->
+			if (page == 1) {
+				val fallbackWidget = runCatchingCancellable { resolveWidgetContext(manga, chapter) }.getOrNull()
+				if (fallbackWidget != null) {
+					return SourceCommentPage(
+						comments = emptyList(),
+						page = page,
+						hasNextPage = false,
+						widgetContext = fallbackWidget,
+						engine = fallbackWidget.engine,
+					)
+				}
+			}
+			throw err
+		}
+
+		val dataArray = json.optJSONArray("data")
+		val flatComments = if (dataArray != null) {
+			List(dataArray.length()) { i ->
+				dataArray.optJSONObject(i)?.let { parseMangaBallComment(it) }
+			}.filterNotNull()
+		} else {
+			emptyList()
+		}
+		val nested = nestCommentsByParentId(flatComments)
+		val pagination = json.optJSONObject("pagination")
+		val total = pagination?.optInt("total", -1)?.takeIf { it >= 0 }
+		val currentPage = pagination?.optInt("page", page) ?: page
+		val totalPages = pagination?.optInt("total_pages", currentPage) ?: currentPage
+		val hasNextPage = currentPage < totalPages
+
+		if (nested.isEmpty() && page == 1) {
+			val fallbackWidget = runCatchingCancellable { resolveWidgetContext(manga, chapter) }.getOrNull()
+			if (fallbackWidget != null) {
+				return SourceCommentPage(
+					comments = emptyList(),
+					page = page,
+					hasNextPage = false,
+					totalCount = total,
+					widgetContext = fallbackWidget,
+					engine = fallbackWidget.engine,
+				)
+			}
+		}
+
+		return SourceCommentPage(
+			comments = nested,
+			page = page,
+			hasNextPage = hasNextPage,
+			totalCount = total,
+			engine = SourceCommentEngine.NATIVE,
+		)
+	}
+
+	override suspend fun resolveWidgetContext(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceWidgetContext? {
+		val pageUrl = if (chapter != null) {
+			"$BASE_URL/chapter-detail/${chapter.url}"
+		} else {
+			getMangaUrl(titleIdFromUrl(manga.url) ?: manga.url)
+		}
+		val doc = runCatchingCancellable { client.httpGet(pageUrl).parseHtml() }.getOrNull() ?: return null
+		return WidgetDetectors.detect(doc, pageUrl)
+	}
+
+	private suspend fun fetchCommentsPageJson(
+		objectId: String,
+		objectType: String,
+		page: Int,
+		limit: Int,
+	): JSONObject {
+		val body = JSONObject().apply {
+			put("object_id", objectId)
+			put("object_type", objectType)
+			put("filter_type", "all")
+			put("page", page)
+			put("limit", limit)
+		}
+		return httpPostJson("$API_URL/comment/load-comments", body)
+	}
+
+	private fun parseMangaBallComment(
+		obj: JSONObject,
+		fallbackParentId: String? = null,
+	): SourceComment? {
+		val id = obj.getStringOrNull("id")
+			?: obj.getStringOrNull("_id")
+			?: return null
+		val authorName = obj.getStringOrNull("user_name")
+			?: obj.optJSONObject("user")?.getStringOrNull("name")
+			?: "Anonymous"
+		val avatarRaw = obj.getStringOrNull("user_avatar")
+			?: obj.opt("user_avatar")?.toString()?.takeUnless { it == "null" }
+		val avatarUrl = when {
+			avatarRaw.isNullOrBlank() -> null
+			avatarRaw.all { it.isDigit() } -> "$BASE_URL/storage/users/avatar/$avatarRaw.png"
+			avatarRaw.startsWith("http://") || avatarRaw.startsWith("https://") -> avatarRaw
+			else -> avatarRaw.toAbsoluteUrl(DOMAIN)
+		}
+
+		val rawContent = obj.getStringOrNull("content").orEmpty().trim()
+		val hasHtml = rawContent.contains('<') && rawContent.contains('>')
+		val plainText = if (hasHtml) {
+			Jsoup.parseBodyFragment(rawContent.replace(LINE_BREAK_TAG_REGEX, "\n"))
+				.wholeText()
+				.replace(Regex("\n{3,}"), "\n\n")
+				.trim()
+				.ifEmpty { rawContent }
+		} else {
+			rawContent
+		}
+
+		val parentId = obj.getStringOrNull("parent_id")?.takeUnless { it == "0" } ?: fallbackParentId
+		val stats = obj.optJSONObject("stats")
+		val likesCount = stats?.optInt("likes", 0) ?: 0
+		val dislikesCount = stats?.optInt("dislikes", 0) ?: 0
+		val nestedReplies = obj.optJSONArray("replies")?.let { arr ->
+			List(arr.length()) { i ->
+				arr.optJSONObject(i)?.let { parseMangaBallComment(it, fallbackParentId = id) }
+			}.filterNotNull()
+		}.orEmpty()
+		val repliesCount = maxOf(stats?.optInt("replies", 0) ?: 0, nestedReplies.size)
+
+		val chapterLabel = obj.optJSONObject("chapter_info")?.let { ch ->
+			ch.getStringOrNull("name") ?: ch.getStringOrNull("number")
+		}
+		val rawMeta = if (!chapterLabel.isNullOrBlank()) {
+			mapOf("chapter" to chapterLabel)
+		} else {
+			emptyMap()
+		}
+		val createdAtRaw = obj.getStringOrNull("created_at")
+
+		return SourceComment(
+			id = id,
+			authorName = authorName,
+			authorAvatarUrl = avatarUrl,
+			body = plainText,
+			bodyHtml = rawContent.takeIf { hasHtml },
+			createdAtEpochMs = parseIsoTimestamp(createdAtRaw),
+			createdAtText = createdAtRaw,
+			isEdited = obj.getBooleanOrDefault("is_edited", false),
+			isSpoiler = obj.getBooleanOrDefault("is_spoiler", false),
+			isPinned = obj.getBooleanOrDefault("is_pinned", false),
+			likesCount = likesCount,
+			dislikesCount = dislikesCount,
+			repliesCount = repliesCount,
+			parentId = parentId,
+			replies = nestedReplies,
+			rawMeta = rawMeta,
+		)
+	}
+
 	private data class ChapterCandidate(
 		val language: String,
 		val chapter: MangaChapter,
@@ -559,9 +821,11 @@ internal abstract class MangaBallParser(
 		private const val LEGACY_DOMAIN = "mangaball.net"
 		private const val PAGE_HOST_SUFFIX = ".poke-black-and-white.net"
 		private const val COVER_BASE_URL = "https://bulbasaur$PAGE_HOST_SUFFIX/covers"
+		private const val COMMENTS_PAGE_SIZE = 20
 		private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 		private val OBJECT_ID_REGEX = Regex("[a-fA-F0-9]{24}")
 		private val WHITESPACE_REGEX = Regex("\\s+")
+		private val LINE_BREAK_TAG_REGEX = Regex("""<(?:br\s*/?|/p|/div)>""", RegexOption.IGNORE_CASE)
 		private val CHAPTER_PREFIX_REGEX = Regex("^(Vol\\.?\\s*\\d+\\s+)?Ch(?:apter)?\\.?\\s*", RegexOption.IGNORE_CASE)
 		private val VOLUME_PREFIX_REGEX = Regex("(?i)^vol\\.?")
 		private val ADULT_TAG_TITLES = setOf(

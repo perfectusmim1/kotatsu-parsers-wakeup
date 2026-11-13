@@ -6,12 +6,22 @@ import kotlinx.coroutines.coroutineScope
 import okhttp3.HttpUrl
 import org.jsoup.nodes.Element
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.network.UserAgents
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.AbstractMangaParser
 import org.koitharu.kotatsu.parsers.exception.ParseException
 import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentEngine
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentPage
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentSort
+import org.koitharu.kotatsu.parsers.model.community.SourceCommunityCapabilities
+import org.koitharu.kotatsu.parsers.model.community.SourceMangaCommunityInfo
+import org.koitharu.kotatsu.parsers.model.community.SourceWidgetContext
+import org.koitharu.kotatsu.parsers.site.community.WidgetDetectors
+import org.koitharu.kotatsu.parsers.site.community.parseCompactCount
+import org.koitharu.kotatsu.parsers.site.community.parseFloatRating
 import org.koitharu.kotatsu.parsers.util.*
 import org.koitharu.kotatsu.parsers.util.json.getStringOrNull
 import java.util.EnumSet
@@ -19,9 +29,24 @@ import java.util.EnumSet
 internal abstract class WebtoonsParser(
 	context: MangaLoaderContext,
 	source: MangaParserSource,
-) : AbstractMangaParser(context, source) {
+) : AbstractMangaParser(context, source),
+	MangaSourceCommunityProvider {
 
 	override val configKeyDomain = ConfigKey.Domain("webtoons.com")
+
+	override val capabilities: SourceCommunityCapabilities = SourceCommunityCapabilities(
+		supportsStats = true,
+		supportsRating = false,
+		maxRatingScale = 10,
+		supportsNativeComments = false,
+		supportsCommentPosting = false,
+		supportsReplies = false,
+		supportsCommentLikes = false,
+		supportsCommentDislikes = false,
+		supportsChapterComments = true,
+		commentEngine = SourceCommentEngine.CUSTOM_WIDGET,
+		supportsWidgetFallback = true,
+	)
 
 	private val mobileApiDomain = "m.webtoons.com"
 	private val staticDomain = "webtoon-phinf.pstatic.net"
@@ -359,4 +384,82 @@ internal abstract class WebtoonsParser(
 
 	@MangaSourceParser("WEBTOONS_DE", "Webtoons German", "de", type = ContentType.MANGA)
 	class German(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_DE)
+
+	override suspend fun getMangaCommunityInfo(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceMangaCommunityInfo {
+		val detailsUrl = resolveSeriesUrl(manga)
+		val doc = runCatching { webClient.httpGet(detailsUrl).parseHtml() }.getOrNull()
+		val viewCount = doc?.selectFirst(".grade_area li:has(.ico_view) em.cnt, .grade_area .ico_view + em")
+			?.textOrNull()
+			?.let(::parseCompactCount)
+		val followCount = doc?.selectFirst(".grade_area li:has(.ico_subscribe) em.cnt, .grade_area .ico_subscribe + em")
+			?.textOrNull()
+			?.let(::parseCompactCount)
+		val rawRating = doc?.selectFirst("#_starScoreAverage, .grade_area .grade_num")
+			?.textOrNull()
+			?.let(::parseFloatRating)
+			?.takeIf { it in 0.1f..10f }
+		val chapterCommentCount = if (chapter != null) {
+			runCatching {
+				val epDoc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
+				epDoc.selectFirst(".comment_area .cnt, .comment_head .cnt, #commentCount")
+					?.textOrNull()
+					?.let { parseCompactCount(it)?.toInt() }
+			}.getOrNull()
+		} else {
+			null
+		}
+
+		return SourceMangaCommunityInfo(
+			averageRating = rawRating?.let { (it / 10f).coerceIn(0f, 1f) },
+			rawRating = rawRating,
+			rawScale = 10,
+			viewCount = viewCount,
+			followCount = followCount,
+			chapterCommentCount = chapterCommentCount,
+		)
+	}
+
+	override suspend fun getComments(
+		manga: Manga,
+		chapter: MangaChapter?,
+		page: Int,
+		sort: SourceCommentSort,
+		cursor: String?,
+	): SourceCommentPage {
+		val widget = resolveWidgetContext(manga, chapter)
+		return SourceCommentPage(
+			comments = emptyList(),
+			page = page,
+			hasNextPage = false,
+			widgetContext = widget,
+			engine = widget.engine,
+		)
+	}
+
+	override suspend fun resolveWidgetContext(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceWidgetContext {
+		val pageUrl = chapter?.url?.toAbsoluteUrl(domain) ?: resolveSeriesUrl(manga)
+		val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
+		if (doc != null) {
+			WidgetDetectors.detect(doc, pageUrl)?.let { return it }
+		}
+		return SourceWidgetContext(
+			engine = SourceCommentEngine.CUSTOM_WIDGET,
+			pageUrl = pageUrl,
+			widgetUrl = pageUrl,
+			title = doc?.title()?.nullIfEmpty() ?: manga.title,
+			baseUrl = pageUrl,
+		)
+	}
+
+	private fun resolveSeriesUrl(manga: Manga): String {
+		if (manga.publicUrl.isNotBlank()) return manga.publicUrl
+		val titleNo = manga.url.toLongOrNull() ?: 0L
+		return "https://$domain/$languageCode/drama/placeholder/list?title_no=$titleNo"
+	}
 }

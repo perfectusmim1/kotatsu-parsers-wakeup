@@ -2,12 +2,16 @@ package org.koitharu.kotatsu.parsers.site.en
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
+import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.AbstractMangaParser
@@ -43,11 +47,23 @@ import org.koitharu.kotatsu.parsers.model.SortOrder.RATING_ASC
 import org.koitharu.kotatsu.parsers.model.SortOrder.RELEVANCE
 import org.koitharu.kotatsu.parsers.model.SortOrder.UPDATED
 import org.koitharu.kotatsu.parsers.model.SortOrder.UPDATED_ASC
+import org.koitharu.kotatsu.parsers.model.community.SourceComment
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentEngine
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentPage
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentSort
+import org.koitharu.kotatsu.parsers.model.community.SourceCommunityCapabilities
+import org.koitharu.kotatsu.parsers.model.community.SourceMangaCommunityInfo
+import org.koitharu.kotatsu.parsers.model.community.SourceWidgetContext
+import org.koitharu.kotatsu.parsers.site.community.WidgetDetectors
+import org.koitharu.kotatsu.parsers.site.community.parseCompactCount
+import org.koitharu.kotatsu.parsers.site.community.parseIsoTimestamp
 import org.koitharu.kotatsu.parsers.util.LinkResolver
 import org.koitharu.kotatsu.parsers.util.attrAsAbsoluteUrl
 import org.koitharu.kotatsu.parsers.util.attrAsAbsoluteUrlOrNull
+import org.koitharu.kotatsu.parsers.util.attrOrNull
 import org.koitharu.kotatsu.parsers.util.generateUid
 import org.koitharu.kotatsu.parsers.util.getCookies
+import org.koitharu.kotatsu.parsers.util.insertCookies
 import org.koitharu.kotatsu.parsers.util.mapChapters
 import org.koitharu.kotatsu.parsers.util.mapToSet
 import org.koitharu.kotatsu.parsers.util.nullIfEmpty
@@ -55,13 +71,15 @@ import org.koitharu.kotatsu.parsers.util.parseHtml
 import org.koitharu.kotatsu.parsers.util.parseSafe
 import org.koitharu.kotatsu.parsers.util.selectFirstOrThrow
 import org.koitharu.kotatsu.parsers.util.textOrNull
+import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
 
 @MangaSourceParser("WEEBCENTRAL", "Weeb Central", "en")
 internal class WeebCentral(context: MangaLoaderContext) : AbstractMangaParser(context, MangaParserSource.WEEBCENTRAL),
-	MangaParserAuthProvider {
+	MangaParserAuthProvider,
+	MangaSourceCommunityProvider {
 
 	override val configKeyDomain = ConfigKey.Domain("weebcentral.com")
 
@@ -69,7 +87,7 @@ internal class WeebCentral(context: MangaLoaderContext) : AbstractMangaParser(co
 		get() = "https://$domain"
 
 	override suspend fun isAuthorized(): Boolean =
-		context.cookieJar.getCookies(domain).any { it.name == "access_token" }
+		context.cookieJar.getCookies(domain).any { it.name == "access_token" && it.value.isNotBlank() }
 
 	override suspend fun getUsername(): String {
 		if (!isAuthorized()) {
@@ -81,6 +99,33 @@ internal class WeebCentral(context: MangaLoaderContext) : AbstractMangaParser(co
 			?.textOrNull()
 			?: throw AuthRequiredException(source)
 	}
+
+	override suspend fun logout() {
+		runCatching {
+			webClient.httpPost("https://$domain/logout", emptyMap()).close()
+		}
+		context.cookieJar.insertCookies(domain, "access_token=; Max-Age=0; Path=/")
+		context.clearAuthValues(source)
+	}
+
+	override val capabilities: SourceCommunityCapabilities = SourceCommunityCapabilities(
+		supportsStats = true,
+		supportsRating = false,
+		maxRatingScale = 5,
+		supportsNativeComments = true,
+		supportsCommentPosting = true,
+		supportsReplies = true,
+		supportsCommentLikes = true,
+		supportsCommentDislikes = false,
+		supportsCommentEditing = false,
+		supportsCommentDeleting = false,
+		supportsChapterComments = true,
+		commentEngine = SourceCommentEngine.NATIVE,
+		supportsWidgetFallback = true,
+		requiresAuthForRating = true,
+		requiresAuthForComment = true,
+		supportedSorts = setOf(SourceCommentSort.NEWEST),
+	)
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(
 		RELEVANCE,
@@ -398,5 +443,251 @@ internal class WeebCentral(context: MangaLoaderContext) : AbstractMangaParser(co
 		val mangaId = link.pathSegments[1]
 
 		return resolver.resolveManga(this, mangaId)
+	}
+
+	override suspend fun getMangaCommunityInfo(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceMangaCommunityInfo {
+		val authorized = runCatching { isAuthorized() }.getOrDefault(false)
+		val username = if (authorized) runCatching { getUsername() }.getOrNull() else null
+		val seriesDoc = runCatching {
+			webClient.httpGet("https://$domain/series/${manga.url}").parseHtml()
+		}.getOrNull()
+		val followCount = seriesDoc?.let { doc ->
+			doc.selectFirst("button[hx-post*='/subscribe'] span, [data-subscribe-count], li:has(strong:contains(Subscriber)) span")
+				?.textOrNull()
+				?.let(::parseCompactCount)
+		}
+		val targetId = chapter?.url ?: manga.url
+		val contentType = if (chapter != null) "chapter" else "series"
+		val commentsDoc = runCatching {
+			webClient.httpGet(
+				"https://$domain/comments/contents/$targetId?content_type=$contentType",
+				htmxHeaders(),
+			).parseHtml()
+		}.getOrNull()
+		val loadedCount = commentsDoc?.select("article[id^=comment-]")?.size?.takeIf { it > 0 }
+		val headerCount = commentsDoc?.selectFirst("h2")?.textOrNull()?.let { parseCompactCount(it)?.toInt() }
+		val count = headerCount ?: loadedCount
+
+		return SourceMangaCommunityInfo(
+			followCount = followCount,
+			commentCount = if (chapter == null) count else null,
+			chapterCommentCount = if (chapter != null) count else null,
+			canCurrentUserComment = authorized,
+			currentUsername = username,
+		)
+	}
+
+	override suspend fun getComments(
+		manga: Manga,
+		chapter: MangaChapter?,
+		page: Int,
+		sort: SourceCommentSort,
+		cursor: String?,
+	): SourceCommentPage {
+		val targetId = chapter?.url ?: manga.url
+		val contentType = if (chapter != null) "chapter" else "series"
+		val commentsUrl = buildString {
+			append("https://")
+			append(domain)
+			append("/comments/contents/")
+			append(targetId)
+			append("?content_type=")
+			append(contentType)
+			if (!cursor.isNullOrBlank()) {
+				append("&cursor=")
+				append(cursor.urlEncoded())
+			}
+		}
+		val doc = runCatching {
+			webClient.httpGet(commentsUrl, htmxHeaders()).parseHtml()
+		}.getOrNull()
+		if (doc != null) {
+			val comments = doc.select("article[id^=comment-]").mapNotNull(::parseWeebCentralComment)
+			val nextCursor = doc.selectFirst("#comment-view-more-container[hx-get]")
+				?.attrOrNull("hx-get")
+				?.toHttpUrlOrNull()
+				?.queryParameter("cursor")
+				?.nullIfEmpty()
+			return SourceCommentPage(
+				comments = comments,
+				page = page,
+				hasNextPage = nextCursor != null,
+				engine = SourceCommentEngine.NATIVE,
+				nextCursor = nextCursor,
+			)
+		}
+		val fallbackWidget = resolveWidgetContext(manga, chapter)
+		return SourceCommentPage(
+			comments = emptyList(),
+			page = page,
+			hasNextPage = false,
+			widgetContext = fallbackWidget,
+			engine = fallbackWidget?.engine ?: SourceCommentEngine.NATIVE,
+		)
+	}
+
+	override suspend fun getReplies(
+		manga: Manga,
+		comment: SourceComment,
+		chapter: MangaChapter?,
+		page: Int,
+		cursor: String?,
+	): SourceCommentPage {
+		val doc = runCatching {
+			webClient.httpGet(
+				"https://$domain/comments/${comment.id}/replies",
+				htmxHeaders(),
+			).parseHtml()
+		}.getOrNull() ?: return super.getReplies(manga, comment, chapter, page, cursor)
+		val replies = doc.select("article[id^=reply-]").mapNotNull { el ->
+			parseWeebCentralComment(el, parentId = comment.id)
+		}
+		return SourceCommentPage(
+			comments = replies,
+			page = page,
+			hasNextPage = false,
+			engine = SourceCommentEngine.NATIVE,
+		)
+	}
+
+	override suspend fun postComment(
+		manga: Manga,
+		text: String,
+		chapter: MangaChapter?,
+		parentComment: SourceComment?,
+		isSpoiler: Boolean,
+	): SourceComment {
+		if (!isAuthorized()) {
+			throw AuthRequiredException(source)
+		}
+		val targetId = chapter?.url ?: manga.url
+		val contentType = if (chapter != null) "chapter" else "series"
+		val bodyText = if (isSpoiler) "<spoiler>$text</spoiler>" else text
+		val endpoint = if (parentComment != null) {
+			"https://$domain/comments/${parentComment.id}/replies".toHttpUrl()
+		} else {
+			"https://$domain/comments".toHttpUrl().newBuilder()
+				.addQueryParameter("content_id", targetId)
+				.addQueryParameter("content_type", contentType)
+				.build()
+		}
+		val response = webClient.httpPost(endpoint, mapOf("content" to bodyText), htmxHeaders())
+		val code = response.code
+		val html = response.use { it.body.string() }
+		if (code == 401 || code == 403) {
+			throw AuthRequiredException(source)
+		}
+		val doc = Jsoup.parseBodyFragment(html)
+		val parsed = doc.selectFirst("article[id^=comment-], article[id^=reply-]")?.let {
+			parseWeebCentralComment(it, parentId = parentComment?.id)
+		}
+		return parsed ?: SourceComment(
+			id = System.currentTimeMillis().toString(),
+			authorName = runCatching { getUsername() }.getOrNull() ?: "You",
+			body = text,
+			createdAtEpochMs = System.currentTimeMillis(),
+			isSpoiler = isSpoiler,
+			parentId = parentComment?.id,
+			isOwnComment = true,
+		)
+	}
+
+	override suspend fun toggleCommentLike(
+		manga: Manga,
+		comment: SourceComment,
+		isLike: Boolean,
+		chapter: MangaChapter?,
+	): SourceComment {
+		if (!isAuthorized()) {
+			throw AuthRequiredException(source)
+		}
+		val shouldUnlike = comment.userVote > 0 || !isLike
+		val action = if (shouldUnlike) "unlike" else "like"
+		val response = webClient.httpPost(
+			"https://$domain/comments/${comment.id}/$action".toHttpUrl(),
+			emptyMap(),
+			htmxHeaders(),
+		)
+		val code = response.code
+		response.close()
+		if (code == 401 || code == 403) {
+			throw AuthRequiredException(source)
+		}
+		val nextVote = if (shouldUnlike) 0 else 1
+		val nextLikes = (comment.likesCount + (nextVote - comment.userVote)).coerceAtLeast(0)
+		return comment.copy(
+			likesCount = nextLikes,
+			userVote = nextVote,
+		)
+	}
+
+	override suspend fun resolveWidgetContext(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceWidgetContext {
+		val pageUrl = if (chapter != null) {
+			"https://$domain/chapters/${chapter.url}"
+		} else {
+			"https://$domain/series/${manga.url}"
+		}
+		val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
+		if (doc != null) {
+			WidgetDetectors.detect(doc, pageUrl)?.let { return it }
+		}
+		return SourceWidgetContext(
+			engine = SourceCommentEngine.CUSTOM_WIDGET,
+			pageUrl = pageUrl,
+			widgetUrl = pageUrl,
+			title = doc?.title()?.nullIfEmpty() ?: manga.title,
+			baseUrl = pageUrl,
+		)
+	}
+
+	private fun htmxHeaders(): Headers = Headers.Builder()
+		.add("HX-Request", "true")
+		.build()
+
+	private fun parseWeebCentralComment(el: Element, parentId: String? = null): SourceComment? {
+		val rawId = el.id()
+		val id = rawId.removePrefix("comment-").removePrefix("reply-").nullIfEmpty() ?: return null
+		val author = el.selectFirst("span.font-semibold")?.textOrNull() ?: "Anonymous"
+		val avatar = el.selectFirst(".avatar img")?.attrAsAbsoluteUrlOrNull("src")
+		val timeEl = el.selectFirst("time.text-datetime") ?: el.selectFirst("time")
+		val dateAttr = timeEl?.attrOrNull("datetime")?.nullIfEmpty() ?: timeEl?.textOrNull()
+		val bodyEl = el.selectFirst("section.mt-2 > p") ?: el.selectFirst("section.mt-2")
+		val body = bodyEl?.text()?.trim().orEmpty()
+		val bodyHtml = bodyEl?.html()?.nullIfEmpty()
+		val xData = el.selectFirst("section[x-data*=likes]")?.attrOrNull("x-data").orEmpty()
+		val likes = REGEX_WC_LIKES.find(xData)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+		val isLiked = REGEX_WC_IS_LIKED.find(xData)?.groupValues?.getOrNull(1)
+			?.equals("true", ignoreCase = true) == true
+		val repliesText = el.selectFirst("button[hx-get*=/replies]")?.textOrNull()
+		val repliesCount = repliesText?.let { parseCompactCount(it)?.toInt() } ?: 0
+		val isSpoiler = bodyEl?.selectFirst("spoiler, .spoiler") != null
+
+		return SourceComment(
+			id = id,
+			authorName = author,
+			authorAvatarUrl = avatar,
+			body = body,
+			bodyHtml = bodyHtml,
+			createdAtEpochMs = parseIsoTimestamp(dateAttr),
+			createdAtText = timeEl?.textOrNull(),
+			isSpoiler = isSpoiler,
+			likesCount = likes,
+			userVote = if (isLiked) 1 else 0,
+			repliesCount = repliesCount,
+			parentId = parentId,
+			canReply = parentId == null,
+			canLike = true,
+		)
+	}
+
+	private companion object {
+		private val REGEX_WC_LIKES = Regex("""likes\s*:\s*(\d+)""")
+		private val REGEX_WC_IS_LIKED = Regex("""is_liked\s*:\s*['"]?(true|false)['"]?""", RegexOption.IGNORE_CASE)
 	}
 }

@@ -1,21 +1,57 @@
 package org.koitharu.kotatsu.parsers.site.en
 
 import androidx.collection.arraySetOf
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.json.JSONArray
+import org.json.JSONObject
+import org.jsoup.nodes.Element
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
+import org.koitharu.kotatsu.parsers.exception.AuthRequiredException
 import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.model.community.SourceComment
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentEngine
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentPage
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentSort
+import org.koitharu.kotatsu.parsers.model.community.SourceCommunityCapabilities
+import org.koitharu.kotatsu.parsers.model.community.SourceMangaCommunityInfo
+import org.koitharu.kotatsu.parsers.model.community.SourceWidgetContext
+import org.koitharu.kotatsu.parsers.site.community.WidgetDetectors
+import org.koitharu.kotatsu.parsers.site.community.parseFloatRating
+import org.koitharu.kotatsu.parsers.site.community.parseIsoTimestamp
 import org.koitharu.kotatsu.parsers.util.*
-import org.jsoup.nodes.Element
+import org.koitharu.kotatsu.parsers.util.json.*
 import java.text.SimpleDateFormat
 import java.util.*
 
 @MangaSourceParser("DEMONICSCANS", "DemonicScans", "en")
 internal class DemonicScans(context: MangaLoaderContext) :
-    PagedMangaParser(context, MangaParserSource.DEMONICSCANS, 25) {
+    PagedMangaParser(context, MangaParserSource.DEMONICSCANS, 25),
+    MangaSourceCommunityProvider {
 
     override val configKeyDomain = ConfigKey.Domain("demonicscans.org")
+
+    override val capabilities: SourceCommunityCapabilities = SourceCommunityCapabilities(
+        supportsStats = true,
+        supportsRating = false,
+        maxRatingScale = 100,
+        supportsNativeComments = true,
+        supportsCommentPosting = true,
+        supportsReplies = true,
+        supportsCommentLikes = true,
+        supportsCommentDislikes = false,
+        supportsCommentEditing = true,
+        supportsCommentDeleting = true,
+        supportsChapterComments = true,
+        commentEngine = SourceCommentEngine.NATIVE,
+        supportsWidgetFallback = true,
+        requiresAuthForRating = true,
+        requiresAuthForComment = true,
+        supportedSorts = setOf(SourceCommentSort.NEWEST, SourceCommentSort.TOP),
+    )
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.NEWEST,
@@ -241,4 +277,276 @@ internal class DemonicScans(context: MangaLoaderContext) :
     	MangaTag("Tragedy", "18", source),
     	MangaTag("Webtoons", "24", source),
     )
+
+    override suspend fun getMangaCommunityInfo(
+        manga: Manga,
+        chapter: MangaChapter?,
+    ): SourceMangaCommunityInfo {
+        val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
+        val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
+        val rawRating = doc?.selectFirst("#manga-info-stats > div:has(> li:eq(0):contains(Rating)) > li:eq(1)")
+            ?.textOrNull()
+            ?.let(::parseFloatRating)
+            ?.takeIf { it in 0.1f..100f }
+        val discussionId = doc?.selectFirst("#cw-comments[data-chapter]")?.attrOrNull("data-chapter")
+        val totalComments = if (discussionId != null) {
+            runCatching {
+                webClient.httpGet("https://$domain/comments_api.php?chapterid=$discussionId&sort=newest&offset=0")
+                    .parseJson()
+                    .getIntOrDefault("total", -1)
+                    .takeIf { it >= 0 }
+            }.getOrNull()
+        } else {
+            null
+        }
+        return SourceMangaCommunityInfo(
+            averageRating = rawRating?.let { (it / 100f).coerceIn(0f, 1f) },
+            rawRating = rawRating,
+            rawScale = 100,
+            commentCount = if (chapter == null) totalComments else null,
+            chapterCommentCount = if (chapter != null) totalComments else null,
+        )
+    }
+
+    override suspend fun getComments(
+        manga: Manga,
+        chapter: MangaChapter?,
+        page: Int,
+        sort: SourceCommentSort,
+        cursor: String?,
+    ): SourceCommentPage {
+        val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
+        val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
+        val discussionId = doc?.selectFirst("#cw-comments[data-chapter]")?.attrOrNull("data-chapter")
+        if (discussionId != null) {
+            val offset = cursor?.toIntOrNull() ?: ((page - 1) * 20).coerceAtLeast(0)
+            val sortParam = if (sort == SourceCommentSort.TOP) "best" else "newest"
+            val apiUrl = "https://$domain/comments_api.php?chapterid=$discussionId&sort=$sortParam&offset=$offset"
+            val json = runCatching { webClient.httpGet(apiUrl).parseJson() }.getOrNull()
+            val items = json?.optJSONArray("items")
+            if (items != null) {
+                val comments = items.mapJSONNotNull { parseDemonicComment(it, discussionId) }
+                val hasMore = json.getBooleanOrDefault("has_more", false)
+                val nextOffset = json.getIntOrDefault("next_offset", offset + comments.size)
+                val total = json.getIntOrDefault("total", -1).takeIf { it >= 0 }
+                return SourceCommentPage(
+                    comments = comments,
+                    page = page,
+                    hasNextPage = hasMore,
+                    totalCount = total,
+                    engine = SourceCommentEngine.NATIVE,
+                    nextCursor = if (hasMore) nextOffset.toString() else null,
+                )
+            }
+        }
+        val widget = resolveWidgetContext(manga, chapter)
+        return SourceCommentPage(
+            comments = emptyList(),
+            page = page,
+            hasNextPage = false,
+            widgetContext = widget,
+            engine = widget.engine,
+        )
+    }
+
+    override suspend fun getReplies(
+        manga: Manga,
+        comment: SourceComment,
+        chapter: MangaChapter?,
+        page: Int,
+        cursor: String?,
+    ): SourceCommentPage {
+        val discussionId = comment.rawMeta["discussionId"] ?: run {
+            val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
+            runCatching { webClient.httpGet(pageUrl).parseHtml() }
+                .getOrNull()
+                ?.selectFirst("#cw-comments[data-chapter]")
+                ?.attrOrNull("data-chapter")
+        } ?: return super.getReplies(manga, comment, chapter, page, cursor)
+
+        val offset = cursor?.toIntOrNull() ?: 0
+        val apiUrl = "https://$domain/comments_api.php?chapterid=$discussionId&thread=${comment.id}&offset=$offset"
+        val json = runCatching { webClient.httpGet(apiUrl).parseJson() }.getOrNull()
+            ?: return super.getReplies(manga, comment, chapter, page, cursor)
+        val items = json.optJSONArray("items") ?: JSONArray()
+        val replies = items.mapJSONNotNull { parseDemonicComment(it, discussionId, parentId = comment.id) }
+        val hasMore = json.getBooleanOrDefault("has_more", false)
+        val nextOffset = json.getIntOrDefault("next_offset", offset + replies.size)
+        return SourceCommentPage(
+            comments = replies,
+            page = page,
+            hasNextPage = hasMore,
+            engine = SourceCommentEngine.NATIVE,
+            nextCursor = if (hasMore) nextOffset.toString() else null,
+        )
+    }
+
+    override suspend fun postComment(
+        manga: Manga,
+        text: String,
+        chapter: MangaChapter?,
+        parentComment: SourceComment?,
+        isSpoiler: Boolean,
+    ): SourceComment {
+        val discussionId = resolveDiscussionId(manga, chapter, parentComment)
+            ?: throw UnsupportedOperationException("Discussion not found")
+        val payload = JSONObject().apply {
+            put("action", "post")
+            put("chapterid", discussionId.toLongOrNull() ?: discussionId)
+            put("commentcontent", text)
+            put("replyto", parentComment?.id?.toLongOrNull() ?: 0L)
+        }
+        val jo = postCommentsApi(discussionId, payload)
+        val item = jo.optJSONObject("item") ?: jo.optJSONObject("comment")
+        return item?.let { parseDemonicComment(it, discussionId, parentId = parentComment?.id) }
+            ?: SourceComment(
+                id = System.currentTimeMillis().toString(),
+                authorName = "You",
+                body = text,
+                createdAtEpochMs = System.currentTimeMillis(),
+                parentId = parentComment?.id,
+                isOwnComment = true,
+                rawMeta = mapOf("discussionId" to discussionId),
+            )
+    }
+
+    override suspend fun editComment(
+        manga: Manga,
+        comment: SourceComment,
+        newText: String,
+        chapter: MangaChapter?,
+    ): SourceComment {
+        val discussionId = resolveDiscussionId(manga, chapter, comment)
+            ?: throw UnsupportedOperationException("Discussion not found")
+        val payload = JSONObject().apply {
+            put("action", "edit")
+            put("chapterid", discussionId.toLongOrNull() ?: discussionId)
+            put("commentid", comment.id.toLongOrNull() ?: comment.id)
+            put("commentcontent", newText)
+        }
+        postCommentsApi(discussionId, payload)
+        return comment.copy(body = newText, bodyHtml = null, isEdited = true)
+    }
+
+    override suspend fun deleteComment(
+        manga: Manga,
+        comment: SourceComment,
+        chapter: MangaChapter?,
+    ) {
+        val discussionId = resolveDiscussionId(manga, chapter, comment)
+            ?: throw UnsupportedOperationException("Discussion not found")
+        val payload = JSONObject().apply {
+            put("action", "delete")
+            put("commentid", comment.id.toLongOrNull() ?: comment.id)
+        }
+        postCommentsApi(discussionId, payload)
+    }
+
+    override suspend fun toggleCommentLike(
+        manga: Manga,
+        comment: SourceComment,
+        isLike: Boolean,
+        chapter: MangaChapter?,
+    ): SourceComment {
+        val discussionId = resolveDiscussionId(manga, chapter, comment)
+            ?: throw UnsupportedOperationException("Discussion not found")
+        val nextLiked = comment.userVote <= 0 && isLike
+        val payload = JSONObject().apply {
+            put("action", "like")
+            put("commentid", comment.id.toLongOrNull() ?: comment.id)
+            put("liked", nextLiked)
+        }
+        val jo = postCommentsApi(discussionId, payload)
+        val likes = jo.getIntOrDefault("likes", comment.likesCount + if (nextLiked) 1 else -1).coerceAtLeast(0)
+        val liked = jo.getBooleanOrDefault("liked", nextLiked)
+        return comment.copy(
+            likesCount = likes,
+            userVote = if (liked) 1 else 0,
+        )
+    }
+
+    override suspend fun resolveWidgetContext(
+        manga: Manga,
+        chapter: MangaChapter?,
+    ): SourceWidgetContext {
+        val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
+        val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
+        if (doc != null) {
+            WidgetDetectors.detect(doc, pageUrl)?.let { return it }
+        }
+        return SourceWidgetContext(
+            engine = SourceCommentEngine.CUSTOM_WIDGET,
+            pageUrl = pageUrl,
+            widgetUrl = pageUrl,
+            title = doc?.title()?.nullIfEmpty() ?: manga.title,
+            baseUrl = pageUrl,
+        )
+    }
+
+    private suspend fun resolveDiscussionId(
+        manga: Manga,
+        chapter: MangaChapter?,
+        comment: SourceComment?,
+    ): String? {
+        comment?.rawMeta?.get("discussionId")?.let { return it }
+        val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
+        val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
+        return doc?.selectFirst("#cw-comments[data-chapter]")?.attrOrNull("data-chapter")
+    }
+
+    private suspend fun postCommentsApi(discussionId: String, payload: JSONObject): JSONObject {
+        val url = "https://$domain/comments_api.php?chapterid=$discussionId".toHttpUrl()
+        val response = webClient.httpPost(url, payload)
+        val code = response.code
+        val raw = response.use { it.body.string() }
+        if (code == 401 || code == 403) {
+            throw AuthRequiredException(source)
+        }
+        val jo = raw.toJSONObjectOrNull() ?: JSONObject()
+        if (!jo.getBooleanOrDefault("ok", true)) {
+            val msg = jo.getStringOrNull("message").orEmpty()
+            if (msg.contains("sign in", ignoreCase = true) || msg.contains("login", ignoreCase = true) || msg.contains("auth", ignoreCase = true)) {
+                throw AuthRequiredException(source)
+            }
+        }
+        return jo
+    }
+
+    private fun parseDemonicComment(
+        jo: JSONObject,
+        discussionId: String,
+        parentId: String? = null,
+    ): SourceComment? {
+        val id = jo.getStringOrNull("id") ?: return null
+        val avatarPath = jo.getStringOrNull("avatar")?.let { raw ->
+            if (raw.startsWith("http", ignoreCase = true)) raw else "https://$domain/${raw.trimStart('/')}"
+        }
+        val createdAt = jo.getStringOrNull("created_at")
+        val replyTo = jo.getLongOrDefault("reply_to", 0L)
+        val resolvedParent = parentId ?: if (replyTo > 0L) replyTo.toString() else null
+        val canEdit = jo.getBooleanOrDefault("can_edit", false)
+        val canDelete = jo.getBooleanOrDefault("can_delete", false)
+        val liked = jo.getBooleanOrDefault("liked", false)
+
+        return SourceComment(
+            id = id,
+            authorName = jo.getStringOrNull("username") ?: "Reader",
+            authorAvatarUrl = avatarPath,
+            body = jo.getStringOrNull("content").orEmpty(),
+            createdAtEpochMs = parseIsoTimestamp(createdAt),
+            createdAtText = createdAt,
+            isEdited = jo.getStringOrNull("edited_at") != null,
+            isPinned = jo.getBooleanOrDefault("pinned", false),
+            likesCount = jo.getIntOrDefault("likes", 0),
+            userVote = if (liked) 1 else 0,
+            repliesCount = jo.getIntOrDefault("reply_count", 0),
+            parentId = resolvedParent,
+            isOwnComment = canEdit || canDelete,
+            canReply = resolvedParent == null,
+            canLike = true,
+            canEdit = canEdit,
+            canDelete = canDelete,
+            rawMeta = mapOf("discussionId" to discussionId),
+        )
+    }
 }

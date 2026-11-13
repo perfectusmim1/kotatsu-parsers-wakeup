@@ -3,17 +3,27 @@ package org.koitharu.kotatsu.parsers.site.madara
 import androidx.collection.scatterSetOf
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
+import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.exception.AuthRequiredException
 import org.koitharu.kotatsu.parsers.exception.ParseException
 import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.model.community.SourceComment
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentPage
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentSort
+import org.koitharu.kotatsu.parsers.model.community.SourceCommunityCapabilities
+import org.koitharu.kotatsu.parsers.model.community.SourceMangaCommunityInfo
+import org.koitharu.kotatsu.parsers.model.community.SourceWidgetContext
+import org.koitharu.kotatsu.parsers.site.community.MadaraCommunityHelper
 import org.koitharu.kotatsu.parsers.util.*
+import java.net.URLDecoder
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.*
@@ -23,7 +33,7 @@ internal abstract class MadaraParser(
 	source: MangaParserSource,
 	domain: String,
 	pageSize: Int = 12,
-) : PagedMangaParser(context, source, pageSize), MangaParserAuthProvider {
+) : PagedMangaParser(context, source, pageSize), MangaParserAuthProvider, MangaSourceCommunityProvider {
 
 	override val configKeyDomain = ConfigKey.Domain(domain)
 
@@ -90,20 +100,123 @@ internal abstract class MadaraParser(
 	override val authUrl: String
 		get() = "https://${domain}"
 
+	override val signUpUrl: String?
+		get() = "https://${domain}/?action=register"
+
 	override suspend fun isAuthorized(): Boolean {
-		return context.cookieJar.getCookies(domain).any {
-			it.name.contains("wordpress_logged_in")
-		}
+		return getWordPressLoggedInCookies().isNotEmpty()
 	}
 
 	override suspend fun getUsername(): String {
 		if (!isAuthorized()) {
 			throw AuthRequiredException(source)
 		}
-		val body = webClient.httpGet("https://${domain}/").parseHtml().body()
-		return body.selectFirst(".c-user_name")?.textOrNull()
-			?: throw AuthRequiredException(source)
+		val domUsername = runCatching {
+			webClient.httpGet("https://${domain}/").parseHtml().body().selectFirst(
+				".c-user_name, .user-name, #user-name, .wp-admin-bar-my-account .display-name, .c-modal_item .user-profile-name",
+			)?.textOrNull()
+		}.getOrNull()
+		if (!domUsername.isNullOrBlank()) {
+			return domUsername
+		}
+		val cookieUsername = getWordPressLoggedInCookies()
+			.firstNotNullOfOrNull { cookie ->
+				runCatching {
+					URLDecoder.decode(cookie.value, Charsets.UTF_8.name())
+						.substringBefore('|')
+						.trim()
+						.takeIf { it.isNotEmpty() }
+				}.getOrNull()
+			}
+		return cookieUsername ?: throw AuthRequiredException(source)
 	}
+
+	override suspend fun logout() {
+		// Cookies are cleared by the host cookie manager on domain clear; also clear stored auth values.
+		context.clearAuthValues(source)
+	}
+
+	private fun getWordPressLoggedInCookies(): List<okhttp3.Cookie> {
+		val baseDomain = domain.trim()
+		val alternateDomain = if (baseDomain.startsWith("www.", ignoreCase = true)) {
+			baseDomain.substring(4)
+		} else {
+			"www.$baseDomain"
+		}
+		val cookies = context.cookieJar.getCookies(baseDomain) + context.cookieJar.getCookies(alternateDomain)
+		return cookies.filter { cookie ->
+			cookie.name.contains("wordpress_logged_in", ignoreCase = true) &&
+				cookie.value.isNotBlank() &&
+				!cookie.value.equals("deleted", ignoreCase = true)
+		}
+	}
+
+	protected val communityHelper: MadaraCommunityHelper by lazy {
+		MadaraCommunityHelper(context, webClient, source, ::domain, ::getRequestHeaders)
+	}
+
+	open override val capabilities: SourceCommunityCapabilities
+		get() = communityHelper.baseCapabilities
+
+	open override suspend fun getMangaCommunityInfo(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceMangaCommunityInfo = communityHelper.getMangaCommunityInfo(manga, chapter)
+
+	open override suspend fun submitRating(
+		manga: Manga,
+		score: Int,
+		chapter: MangaChapter?,
+	): SourceMangaCommunityInfo = communityHelper.submitRating(manga, score, chapter)
+
+	open override suspend fun getComments(
+		manga: Manga,
+		chapter: MangaChapter?,
+		page: Int,
+		sort: SourceCommentSort,
+		cursor: String?,
+	): SourceCommentPage = communityHelper.getComments(manga, chapter, page, sort, cursor)
+
+	open override suspend fun getReplies(
+		manga: Manga,
+		comment: SourceComment,
+		chapter: MangaChapter?,
+		page: Int,
+		cursor: String?,
+	): SourceCommentPage = super.getReplies(manga, comment, chapter, page, cursor)
+
+	open override suspend fun postComment(
+		manga: Manga,
+		text: String,
+		chapter: MangaChapter?,
+		parentComment: SourceComment?,
+		isSpoiler: Boolean,
+	): SourceComment = communityHelper.postComment(manga, text, chapter, parentComment)
+
+	open override suspend fun editComment(
+		manga: Manga,
+		comment: SourceComment,
+		newText: String,
+		chapter: MangaChapter?,
+	): SourceComment = communityHelper.editComment(manga, comment, newText, chapter)
+
+	open override suspend fun deleteComment(
+		manga: Manga,
+		comment: SourceComment,
+		chapter: MangaChapter?,
+	) = communityHelper.deleteComment(manga, comment, chapter)
+
+	open override suspend fun toggleCommentLike(
+		manga: Manga,
+		comment: SourceComment,
+		isLike: Boolean,
+		chapter: MangaChapter?,
+	): SourceComment = communityHelper.toggleCommentLike(manga, comment, isLike, chapter)
+
+	open override suspend fun resolveWidgetContext(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceWidgetContext? = communityHelper.resolveWidgetContext(manga, chapter)
 
 	protected open val tagPrefix = "manga-genre/"
 	protected open val datePattern = "MMMM d, yyyy"
@@ -487,7 +600,14 @@ internal abstract class MadaraParser(
 				title = (summary?.selectFirst("h3, h4") ?: div.selectFirst(".manga-name, .post-title"))?.text()
 					.orEmpty(),
 				altTitles = emptySet(),
-				rating = div.selectFirst("span.total_votes")?.ownText()?.toFloatOrNull()?.div(5f) ?: RATING_UNKNOWN,
+				rating = div.selectFirst("span#averagerate, span.score, span.total_votes")
+					?.ownText()
+					?.trim()
+					?.replace(',', '.')
+					?.toFloatOrNull()
+					?.takeIf { it in 0f..5f }
+					?.div(5f)
+					?: RATING_UNKNOWN,
 				tags = summary?.selectFirst(".mg_genres")?.select("a")?.mapNotNullToSet { a ->
 					MangaTag(
 						key = a.attr("href").removeSuffix('/').substringAfterLast('/'),
@@ -561,6 +681,17 @@ internal abstract class MadaraParser(
 		)
 	}
 
+	protected open fun parseDetailRating(doc: Document): Float? {
+		val rawText = doc.selectFirst("span#averagerate, .post-total-rating .score, .post-rating span#averagerate")
+			?.textOrNull()
+			?: doc.selectFirst("[itemprop=ratingValue]")?.let { el ->
+				el.attrOrNull("content") ?: el.textOrNull()
+			}
+			?: return null
+		val rawScore = RATING_NUMBER_REGEX.find(rawText)?.value?.replace(',', '.')?.toFloatOrNull() ?: return null
+		return rawScore.takeIf { it > 0f && it <= 5f }?.div(5f)
+	}
+
 	override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
 		val fullUrl = manga.url.toAbsoluteUrl(domain)
 		val doc = webClient.httpGet(fullUrl).parseHtml()
@@ -593,6 +724,7 @@ internal abstract class MadaraParser(
 			title = doc.selectFirst("h1")?.textOrNull() ?: manga.title,
 			url = href,
 			publicUrl = href.toAbsoluteUrl(domain),
+			rating = parseDetailRating(doc) ?: manga.rating,
 			tags = doc.body().select(selectGenre).mapToSet { a -> createMangaTag(a) }.filterNotNull().toSet(),
 			description = desc,
 			altTitles = setOfNotNull(alt),
@@ -710,17 +842,36 @@ internal abstract class MadaraParser(
 					"No image found, try to log in",
 					fullUrl,
 				)
-				return root.select(selectPage).flatMap { div ->
-					div.selectOrThrow("img").map { img ->
-						val url = img.requireSrc().toRelativeUrl(domain)
-						MangaPage(
-							id = generateUid(url),
-							url = url,
+				val rawEntries = ArrayList<ExtractedPage>()
+				val filteredEntries = ArrayList<ExtractedPage>()
+				for (div in root.select(selectPage)) {
+					val containerIgnored = isIgnoredPageContainer(div)
+					for (img in div.select("img")) {
+						val rawUrl = img.src()?.trim()?.nullIfEmpty() ?: continue
+						if (isPlaceholderScheme(rawUrl)) continue
+						val relativeUrl = rawUrl.toRelativeUrl(domain)
+						val page = MangaPage(
+							id = generateUid(relativeUrl),
+							url = relativeUrl,
 							preview = null,
 							source = source,
 						)
+						val entry = ExtractedPage(page, rawUrl)
+						rawEntries.add(entry)
+						if (!containerIgnored && !isInvalidPageImage(img, rawUrl, relativeUrl)) {
+							filteredEntries.add(entry)
+						}
 					}
 				}
+				if (rawEntries.isEmpty()) {
+					throw ParseException("No image found", fullUrl)
+				}
+				val cleanedEntries = if (filteredEntries.isNotEmpty()) {
+					filterTrailingPromoEntries(filteredEntries)
+				} else {
+					rawEntries
+				}
+				return cleanedEntries.map { it.page }
 			}
 		} else {
 
@@ -743,17 +894,156 @@ internal abstract class MadaraParser(
 			val rawImgArray = CryptoAES(context).decrypt(context.encodeBase64(ciphertext), password)
 			val imgArrayString = rawImgArray.filterNot { c -> c == '[' || c == ']' || c == '\\' || c == '"' }
 
-			return imgArrayString.split(",").map { url ->
+			val rawPages = imgArrayString.split(",").mapNotNull { raw ->
+				val url = raw.trim().nullIfEmpty() ?: return@mapNotNull null
+				if (isPlaceholderScheme(url)) return@mapNotNull null
+				val rel = url.toRelativeUrl(domain)
 				MangaPage(
-					id = generateUid(url),
-					url = url,
+					id = generateUid(rel),
+					url = rel,
 					preview = null,
 					source = source,
 				)
 			}
-
+			val filtered = rawPages.filterNot { page ->
+				isInvalidPageUrl(page.url, page.url)
+			}
+			return filtered.ifEmpty { rawPages }
 		}
 	}
+
+	protected open fun isIgnoredPageContainer(div: Element): Boolean {
+		val classAndId = buildList {
+			addAll(div.classNames())
+			div.id().nullIfEmpty()?.let(::add)
+		}
+		return classAndId.any { attr ->
+			attr.lowercase(Locale.ROOT) in IGNORED_CONTAINER_CLASSES
+		}
+	}
+
+	protected open fun isInvalidPageImage(img: Element, rawUrl: String, relativeUrl: String): Boolean {
+		if (isPlaceholderScheme(rawUrl)) return true
+		val width = img.attr("width").trim().toIntOrNull()
+		val height = img.attr("height").trim().toIntOrNull()
+		if ((width != null && width in 1..2) || (height != null && height in 1..2)) {
+			return true
+		}
+		if (img.styleValueOrNull("width") == "1px" || img.styleValueOrNull("height") == "1px") {
+			return true
+		}
+		val anchor = img.selectFirstParent("a[href]")
+		if (anchor != null && isPromoAnchor(anchor)) {
+			return true
+		}
+		return isInvalidPageUrl(rawUrl, relativeUrl)
+	}
+
+	protected open fun isInvalidPageUrl(rawUrl: String, relativeUrl: String): Boolean {
+		if (isPlaceholderScheme(rawUrl)) return true
+		val parsed = rawUrl.toHttpUrlOrNull()
+		val host = parsed?.host?.lowercase(Locale.ROOT)
+		if (host != null && AD_HOSTS.any { adHost -> host == adHost || host.endsWith(".$adHost") }) {
+			return true
+		}
+		val path = (parsed?.encodedPath ?: rawUrl.substringBefore('?').substringBefore('#')).lowercase(Locale.ROOT)
+		if ("/wp-content/themes/" in path || "/wp-content/plugins/" in path) {
+			return true
+		}
+		val fileName = path.substringAfterLast('/')
+		if (fileName.isEmpty() || fileName.endsWith(".svg")) {
+			return true
+		}
+		val stem = fileName.substringBeforeLast('.')
+		val tokens = stem.split(STEM_TOKEN_SPLIT_REGEX).filter { it.isNotEmpty() }
+		if (tokens.isEmpty() || tokens.all { it.all(Char::isDigit) }) {
+			return false
+		}
+		return tokens.any { token ->
+			token in PLACEHOLDER_STEM_TOKENS || token in PROMO_STEM_TOKENS
+		}
+	}
+
+	protected open fun isTrailingPromoPage(
+		rawUrl: String,
+		relativeUrl: String,
+		dominantDir: String?,
+		leadingPagesCount: Int,
+	): Boolean {
+		if (leadingPagesCount < 2 || dominantDir == null) return false
+		val parsed = rawUrl.toHttpUrlOrNull()
+		val path = (parsed?.encodedPath ?: rawUrl.substringBefore('?').substringBefore('#')).lowercase(Locale.ROOT)
+		val dir = directoryKey(parsed?.host, path)
+		if (dir == dominantDir) return false
+		val fileName = path.substringAfterLast('/')
+		val stem = fileName.substringBeforeLast('.')
+		if (WP_MEDIA_DATE_PATH_REGEX.containsMatchIn(path) && "/wp-manga/" in dominantDir && !stem.all(Char::isDigit)) {
+			return true
+		}
+		val hasDigits = stem.any(Char::isDigit)
+		if (!hasDigits && (fileName.endsWith(".gif") || TRAILING_PROMO_DIR_TOKENS.any { it in path })) {
+			return true
+		}
+		return false
+	}
+
+	private fun filterTrailingPromoEntries(entries: List<ExtractedPage>): List<ExtractedPage> {
+		if (entries.size < 3) return entries
+		val dirCounts = HashMap<String, Int>()
+		for (entry in entries) {
+			val parsed = entry.rawUrl.toHttpUrlOrNull()
+			val path = (parsed?.encodedPath ?: entry.rawUrl.substringBefore('?').substringBefore('#'))
+				.lowercase(Locale.ROOT)
+			val fileStem = path.substringAfterLast('/').substringBeforeLast('.')
+			if (fileStem.any(Char::isDigit) || "/wp-manga/" in path) {
+				val key = directoryKey(parsed?.host, path)
+				dirCounts[key] = (dirCounts[key] ?: 0) + 1
+			}
+		}
+		val dominantDir = dirCounts.entries
+			.filter { it.value >= 2 }
+			.maxByOrNull { it.value }
+			?.key
+			?: return entries
+		var endExclusive = entries.size
+		while (endExclusive > 1) {
+			val candidate = entries[endExclusive - 1]
+			if (isTrailingPromoPage(candidate.rawUrl, candidate.page.url, dominantDir, endExclusive - 1)) {
+				endExclusive--
+			} else {
+				break
+			}
+		}
+		return if (endExclusive == entries.size) entries else entries.subList(0, endExclusive)
+	}
+
+	private fun isPlaceholderScheme(url: String): Boolean =
+		url.startsWith("data:", ignoreCase = true) ||
+			url.startsWith("about:", ignoreCase = true) ||
+			url.startsWith("javascript:", ignoreCase = true)
+
+	private fun isPromoAnchor(anchor: Element): Boolean {
+		val rel = anchor.attr("rel").lowercase(Locale.ROOT)
+		if ("sponsored" in rel) return true
+		val href = anchor.attr("href").trim().lowercase(Locale.ROOT)
+		if (href.isEmpty() || href.startsWith("#")) return false
+		if (IMAGE_EXTENSIONS.any { ext -> href.substringBefore('?').endsWith(ext) }) return false
+		val host = anchor.attrAsAbsoluteUrlOrNull("href")?.toHttpUrlOrNull()?.host?.lowercase(Locale.ROOT)
+		if (host != null && (AD_HOSTS.any { host == it || host.endsWith(".$it") } || PROMO_LINK_HOSTS.any { host == it || host.endsWith(".$it") })) {
+			return true
+		}
+		return "discord.gg/" in href || "discord.com/invite" in href
+	}
+
+	private fun directoryKey(host: String?, path: String): String {
+		val parent = path.substringBeforeLast('/', "")
+		return "${host?.lowercase(Locale.ROOT).orEmpty()}$parent"
+	}
+
+	private data class ExtractedPage(
+		val page: MangaPage,
+		val rawUrl: String,
+	)
 
 	protected fun parseChapterDate(dateFormat: DateFormat, date: String?): Long {
 		val d = date?.lowercase() ?: return 0
@@ -838,6 +1128,105 @@ internal abstract class MadaraParser(
 	}
 
 	private companion object {
+
+		val RATING_NUMBER_REGEX = Regex("""\d+(?:[.,]\d+)?""")
+		val STEM_TOKEN_SPLIT_REGEX = Regex("[^a-z0-9]+")
+		val WP_MEDIA_DATE_PATH_REGEX = Regex("""/wp-content/uploads/\d{4}/\d{2}/""")
+
+		val IGNORED_CONTAINER_CLASSES = setOf(
+			"ad",
+			"ads",
+			"ad-banner",
+			"ad-container",
+			"advertisement",
+			"adsbygoogle",
+			"sponsor",
+			"sponsored",
+			"footer-banner",
+			"chapter-footer",
+			"reading-footer",
+			"discord-banner",
+			"patreon-banner",
+			"donate-banner",
+		)
+
+		val AD_HOSTS = setOf(
+			"doubleclick.net",
+			"googlesyndication.com",
+			"googleadservices.com",
+			"googletagmanager.com",
+			"google-analytics.com",
+			"adnxs.com",
+			"popads.net",
+			"popcash.net",
+			"exoclick.com",
+			"juicyads.com",
+			"trafficjunky.com",
+			"trafficjunky.net",
+			"mc.yandex.ru",
+			"statcounter.com",
+			"scorecardresearch.com",
+			"histats.com",
+			"amung.us",
+		)
+
+		val PROMO_LINK_HOSTS = setOf(
+			"discord.gg",
+			"discord.com",
+			"discordapp.com",
+			"patreon.com",
+			"ko-fi.com",
+			"buymeacoffee.com",
+			"t.me",
+		)
+
+		val PLACEHOLDER_STEM_TOKENS = setOf(
+			"placeholder",
+			"loading",
+			"loader",
+			"spinner",
+			"blank",
+			"empty",
+			"pixel",
+			"spacer",
+			"1x1",
+			"transparent",
+			"noimage",
+			"nopage",
+			"lazyload",
+			"favicon",
+		)
+
+		val PROMO_STEM_TOKENS = setOf(
+			"reklam",
+			"banner",
+			"discord",
+			"patreon",
+			"kofi",
+			"paypal",
+			"sponsor",
+			"doubleclick",
+			"adsense",
+			"ads",
+			"advert",
+			"advertisement",
+			"footer",
+			"logo",
+			"bagis",
+			"destek",
+			"duyuru",
+		)
+
+		val TRAILING_PROMO_DIR_TOKENS = arrayOf(
+			"/banner",
+			"/ads/",
+			"/reklam/",
+			"/footer",
+			"/promo",
+			"/assets/",
+		)
+
+		val IMAGE_EXTENSIONS = arrayOf(".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif")
 
 		private fun createRequestTemplate() =
 			("action=madara_load_more&page=0&template=madara-core%2Fcontent%2Fcontent-search&vars%5Bs%5D=&vars%5Bpaged%5D=1&vars%5Btemplate%5D=search&vars%5Bmeta_query%5D%5B0%5D%5Brelation%5D=AND&vars%5Bmeta_query%5D%5Brelation%5D=AND&vars%5Bpost_type%5D=wp-manga&vars%5Bpost_status%5D=publish&vars%5Bmanga_archives_item_layout%5D=default").split(

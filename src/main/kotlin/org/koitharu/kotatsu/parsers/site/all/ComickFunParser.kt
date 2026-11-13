@@ -7,10 +7,18 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentEngine
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentPage
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentSort
+import org.koitharu.kotatsu.parsers.model.community.SourceCommunityCapabilities
+import org.koitharu.kotatsu.parsers.model.community.SourceMangaCommunityInfo
+import org.koitharu.kotatsu.parsers.model.community.SourceWidgetContext
+import org.koitharu.kotatsu.parsers.site.community.WidgetDetectors
 import org.koitharu.kotatsu.parsers.util.*
 import org.koitharu.kotatsu.parsers.util.json.*
 import org.koitharu.kotatsu.parsers.util.suspendlazy.suspendLazy
@@ -21,9 +29,24 @@ private const val CHAPTERS_LIMIT = 99999
 
 @MangaSourceParser("COMICK_FUN", "ComicK")
 internal class ComickFunParser(context: MangaLoaderContext) :
-    PagedMangaParser(context, MangaParserSource.COMICK_FUN, 20) {
+    PagedMangaParser(context, MangaParserSource.COMICK_FUN, 20),
+    MangaSourceCommunityProvider {
 
     override val configKeyDomain = ConfigKey.Domain("comick.live", "comick.art")
+
+    override val capabilities: SourceCommunityCapabilities = SourceCommunityCapabilities(
+        supportsStats = true,
+        supportsRating = false,
+        maxRatingScale = 10,
+        supportsNativeComments = false,
+        supportsCommentPosting = false,
+        supportsReplies = false,
+        supportsCommentLikes = false,
+        supportsCommentDislikes = false,
+        supportsChapterComments = false,
+        commentEngine = SourceCommentEngine.CUSTOM_WIDGET,
+        supportsWidgetFallback = true,
+    )
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
         super.onCreateConfig(keys)
@@ -705,5 +728,69 @@ internal class ComickFunParser(context: MangaLoaderContext) :
 
     private fun JSONArray.joinToString(separator: String): String {
         return (0 until length()).joinToString(separator) { i -> getString(i) }
+    }
+
+    override suspend fun getMangaCommunityInfo(
+        manga: Manga,
+        chapter: MangaChapter?,
+    ): SourceMangaCommunityInfo {
+        val url = "https://$domain/comic/${manga.url}"
+        val jo = runCatching {
+            val doc = webClient.httpGet(url).parseHtml()
+            val rawJson = doc.selectFirst("#comic-data")?.data() ?: return@runCatching null
+            JSONObject(rawJson)
+        }.getOrNull()
+
+        val rawRating = jo?.getStringOrNull("bayesian_rating")?.toFloatOrNull()?.takeIf { it > 0f }
+        val ratingCount = jo?.getIntOrDefault("rating_count", 0)?.takeIf { it > 0 }
+        val followCount = jo?.getLongOrDefault("follow_count", 0L)?.takeIf { it > 0L }
+            ?: jo?.getLongOrDefault("user_follow_count", 0L)?.takeIf { it > 0L }
+
+        return SourceMangaCommunityInfo(
+            averageRating = rawRating?.let { (it / 10f).coerceIn(0f, 1f) },
+            rawRating = rawRating,
+            rawScale = 10,
+            ratingCount = ratingCount,
+            followCount = followCount,
+        )
+    }
+
+    override suspend fun getComments(
+        manga: Manga,
+        chapter: MangaChapter?,
+        page: Int,
+        sort: SourceCommentSort,
+        cursor: String?,
+    ): SourceCommentPage {
+        val widget = resolveWidgetContext(manga, chapter)
+        return SourceCommentPage(
+            comments = emptyList(),
+            page = page,
+            hasNextPage = false,
+            widgetContext = widget,
+            engine = widget.engine,
+        )
+    }
+
+    override suspend fun resolveWidgetContext(
+        manga: Manga,
+        chapter: MangaChapter?,
+    ): SourceWidgetContext {
+        val pageUrl = if (chapter != null && chapter.url.startsWith("/")) {
+            "https://$domain${chapter.url}"
+        } else {
+            "https://$domain/comic/${manga.url}"
+        }
+        val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
+        if (doc != null) {
+            WidgetDetectors.detect(doc, pageUrl)?.let { return it }
+        }
+        return SourceWidgetContext(
+            engine = SourceCommentEngine.CUSTOM_WIDGET,
+            pageUrl = pageUrl,
+            widgetUrl = pageUrl,
+            title = doc?.title()?.nullIfEmpty() ?: manga.title,
+            baseUrl = pageUrl,
+        )
     }
 }

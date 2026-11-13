@@ -136,4 +136,20 @@ public abstract class MangaLoaderContext {
     ): List<String> {
         throw UnsupportedOperationException("WebView URL capture is not available")
     }
+
+    /**
+     * Reads a source-scoped persistent authentication value (such as an OAuth access/refresh token,
+     * Bearer token, or session metadata) stored outside cookies.
+     */
+    public open suspend fun getAuthValue(source: MangaSource, key: String): String? = null
+
+    /**
+     * Persists or clears (when [value] is null) a source-scoped authentication value.
+     */
+    public open suspend fun setAuthValue(source: MangaSource, key: String, value: String?) {}
+
+    /**
+     * Clears all source-scoped persistent authentication values for [source].
+     */
+    public open suspend fun clearAuthValues(source: MangaSource) {}
 }

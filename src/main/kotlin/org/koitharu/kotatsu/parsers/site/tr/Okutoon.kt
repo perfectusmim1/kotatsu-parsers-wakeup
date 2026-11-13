@@ -5,19 +5,109 @@ import org.jsoup.nodes.Document
 import org.koitharu.kotatsu.parsers.exception.ParseException
 
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
+import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.model.community.SourceComment
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentPage
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentSort
+import org.koitharu.kotatsu.parsers.model.community.SourceCommunityCapabilities
+import org.koitharu.kotatsu.parsers.model.community.SourceMangaCommunityInfo
+import org.koitharu.kotatsu.parsers.site.community.OkutoonCommunityHelper
 import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
 @MangaSourceParser("OKUTOON", "OkuToon", "tr", ContentType.MANGA)
 internal class Okutoon(context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.OKUTOON, pageSize = 24) {
+	PagedMangaParser(context, MangaParserSource.OKUTOON, pageSize = 24),
+	MangaParserAuthProvider,
+	MangaSourceCommunityProvider {
 
 	override val configKeyDomain: ConfigKey.Domain = ConfigKey.Domain("okutoon.com")
+
+	private val communityHelper by lazy {
+		OkutoonCommunityHelper(
+			context = context,
+			webClient = webClient,
+			source = source,
+			domainProvider = ::domain,
+			requestHeadersProvider = ::getRequestHeaders,
+		)
+	}
+
+	override val authUrl: String
+		get() = communityHelper.authUrl
+
+	override val signUpUrl: String?
+		get() = communityHelper.signUpUrl
+
+	override suspend fun isAuthorized(): Boolean = communityHelper.isAuthorized()
+
+	override suspend fun getUsername(): String = communityHelper.getUsername()
+
+	override suspend fun logout() = communityHelper.logout()
+
+	override val capabilities: SourceCommunityCapabilities
+		get() = communityHelper.capabilities
+
+	override suspend fun getMangaCommunityInfo(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceMangaCommunityInfo = communityHelper.getMangaCommunityInfo(manga, chapter)
+
+	override suspend fun submitRating(
+		manga: Manga,
+		score: Int,
+		chapter: MangaChapter?,
+	): SourceMangaCommunityInfo = communityHelper.submitRating(manga, score, chapter)
+
+	override suspend fun getComments(
+		manga: Manga,
+		chapter: MangaChapter?,
+		page: Int,
+		sort: SourceCommentSort,
+		cursor: String?,
+	): SourceCommentPage = communityHelper.getComments(manga, chapter, page, cursor)
+
+	override suspend fun getReplies(
+		manga: Manga,
+		comment: SourceComment,
+		chapter: MangaChapter?,
+		page: Int,
+		cursor: String?,
+	): SourceCommentPage = communityHelper.getReplies(manga, comment, chapter, page, cursor)
+
+	override suspend fun postComment(
+		manga: Manga,
+		text: String,
+		chapter: MangaChapter?,
+		parentComment: SourceComment?,
+		isSpoiler: Boolean,
+	): SourceComment = communityHelper.postComment(manga, text, chapter, parentComment)
+
+	override suspend fun editComment(
+		manga: Manga,
+		comment: SourceComment,
+		newText: String,
+		chapter: MangaChapter?,
+	): SourceComment = communityHelper.editComment(manga, comment, newText, chapter)
+
+	override suspend fun deleteComment(
+		manga: Manga,
+		comment: SourceComment,
+		chapter: MangaChapter?,
+	) = communityHelper.deleteComment(manga, comment, chapter)
+
+	override suspend fun toggleCommentLike(
+		manga: Manga,
+		comment: SourceComment,
+		isLike: Boolean,
+		chapter: MangaChapter?,
+	): SourceComment = communityHelper.toggleCommentLike(manga, comment, chapter)
 
 	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
 		super.onCreateConfig(keys)

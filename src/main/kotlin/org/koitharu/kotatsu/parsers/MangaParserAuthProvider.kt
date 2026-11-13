@@ -27,4 +27,15 @@ public interface MangaParserAuthProvider {
 	 * @throws [ParseException] on parsing error
 	 */
 	public suspend fun getUsername(): String
+
+	/**
+	 * Direct registration/sign-up URL when different from [authUrl], or `null` if [authUrl] handles both.
+	 */
+	public val signUpUrl: String?
+		get() = null
+
+	/**
+	 * Clears source session state (tokens/cookies) during sign-out.
+	 */
+	public suspend fun logout() {}
 }
