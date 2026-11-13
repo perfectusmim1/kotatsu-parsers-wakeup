@@ -1,12 +1,14 @@
 package org.koitharu.kotatsu.parsers.site.madara.en
 
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
 import org.koitharu.kotatsu.parsers.util.*
 
+@Broken
 @MangaSourceParser("FIRESCANS", "FireScans", "en")
 internal class FireScans(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.FIRESCANS, "firescans.xyz", 10) {

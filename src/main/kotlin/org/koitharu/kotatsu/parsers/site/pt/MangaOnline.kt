@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.pt
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -9,6 +10,7 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("MANGAONLINE", "MangaOnline.biz", "pt")
 internal class MangaOnline(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.MANGAONLINE, 20) {

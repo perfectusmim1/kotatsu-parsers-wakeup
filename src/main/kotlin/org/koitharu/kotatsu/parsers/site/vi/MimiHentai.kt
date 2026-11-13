@@ -5,6 +5,7 @@ import okhttp3.Interceptor
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.bitmap.Bitmap
@@ -19,6 +20,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.PI
 
+@Broken
 @MangaSourceParser("MIMIHENTAI", "MimiHentai", "vi", type = ContentType.HENTAI)
 internal class MimiHentai(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.MIMIHENTAI, 18) {

@@ -2,6 +2,7 @@ package org.koitharu.kotatsu.parsers.site.en
 
 import org.json.JSONArray
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -14,6 +15,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.time.Instant
 import java.util.*
 
+@Broken
 @MangaSourceParser("ALLMANGA", "Mkissa", "en")
 internal class AllManga(context: MangaLoaderContext) : PagedMangaParser(context, MangaParserSource.ALLMANGA, 20) {
 

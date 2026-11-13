@@ -4,6 +4,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import org.json.JSONArray
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -16,6 +17,7 @@ import org.koitharu.kotatsu.parsers.util.json.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("HENTAIVNSU", "HentaiVN.su", "vi", type = ContentType.HENTAI)
 internal class HentaiVnSU(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.HENTAIVNSU, 24), MangaParserAuthProvider {

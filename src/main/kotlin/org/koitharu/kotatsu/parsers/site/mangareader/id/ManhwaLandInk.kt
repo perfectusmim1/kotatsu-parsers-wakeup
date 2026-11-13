@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.mangareader.id
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.ContentType
@@ -7,6 +8,7 @@ import org.koitharu.kotatsu.parsers.model.MangaListFilterCapabilities
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.site.mangareader.MangaReaderParser
 
+@Broken
 @MangaSourceParser("MANHWALAND_INK", "ManhwaLand.ink", "id", ContentType.HENTAI)
 internal class ManhwaLandInk(context: MangaLoaderContext) :
 	MangaReaderParser(

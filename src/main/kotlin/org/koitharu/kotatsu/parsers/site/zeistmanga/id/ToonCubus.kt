@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.zeistmanga.id
 
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.ContentType
@@ -10,6 +11,7 @@ import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.site.zeistmanga.ZeistMangaParser
 import org.koitharu.kotatsu.parsers.util.*
 
+@Broken
 @MangaSourceParser("TOONCUBUS", "ToonCubus", "id", ContentType.HENTAI)
 internal class ToonCubus(context: MangaLoaderContext) :
 	ZeistMangaParser(context, MangaParserSource.TOONCUBUS, "www.tooncubus.top") {

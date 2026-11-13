@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.all
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -440,6 +441,7 @@ internal abstract class WeebDexParser(
         return emptyList()
     }
 
+    @Broken
     @MangaSourceParser("WEEBDEX_EN", "WeebDex (English)", "en")
     class English(context: MangaLoaderContext) : WeebDexParser(
         context,
@@ -447,6 +449,7 @@ internal abstract class WeebDexParser(
         "en"
     )
 
+    @Broken
     @MangaSourceParser("WEEBDEX_ES", "WeebDex (Español)", "es")
     class Spanish(context: MangaLoaderContext) : WeebDexParser(
         context,
@@ -454,6 +457,7 @@ internal abstract class WeebDexParser(
         "es"
     )
 
+    @Broken
     @MangaSourceParser("WEEBDEX_FR", "WeebDex (Français)", "fr")
     class French(context: MangaLoaderContext) : WeebDexParser(
         context,
@@ -461,6 +465,7 @@ internal abstract class WeebDexParser(
         "fr"
     )
 
+    @Broken
     @MangaSourceParser("WEEBDEX_PT", "WeebDex (Português)", "pt")
     class Portuguese(context: MangaLoaderContext) : WeebDexParser(
         context,
@@ -468,6 +473,7 @@ internal abstract class WeebDexParser(
         "pt"
     )
 
+    @Broken
     @MangaSourceParser("WEEBDEX_DE", "WeebDex (Deutsch)", "de")
     class German(context: MangaLoaderContext) : WeebDexParser(
         context,
@@ -475,6 +481,7 @@ internal abstract class WeebDexParser(
         "de"
     )
 
+    @Broken
     @MangaSourceParser("WEEBDEX_IT", "WeebDex (Italiano)", "it")
     class Italian(context: MangaLoaderContext) : WeebDexParser(
         context,
@@ -482,6 +489,7 @@ internal abstract class WeebDexParser(
         "it"
     )
 
+    @Broken
     @MangaSourceParser("WEEBDEX_RU", "WeebDex (Русский)", "ru")
     class Russian(context: MangaLoaderContext) : WeebDexParser(
         context,
@@ -489,6 +497,7 @@ internal abstract class WeebDexParser(
         "ru"
     )
 
+    @Broken
     @MangaSourceParser("WEEBDEX_JA", "WeebDex (日本語)", "ja")
     class Japanese(context: MangaLoaderContext) : WeebDexParser(
         context,
@@ -496,6 +505,7 @@ internal abstract class WeebDexParser(
         "ja"
     )
 
+    @Broken
     @MangaSourceParser("WEEBDEX_ZH", "WeebDex (中文)", "zh")
     class Chinese(context: MangaLoaderContext) : WeebDexParser(
         context,
@@ -503,6 +513,7 @@ internal abstract class WeebDexParser(
         "zh"
     )
 
+    @Broken
     @MangaSourceParser("WEEBDEX_KO", "WeebDex (한국어)", "ko")
     class Korean(context: MangaLoaderContext) : WeebDexParser(
         context,

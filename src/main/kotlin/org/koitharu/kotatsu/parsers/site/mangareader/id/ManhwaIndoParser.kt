@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.mangareader.id
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.MangaChapter
@@ -8,6 +9,7 @@ import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.site.mangareader.MangaReaderParser
 import org.koitharu.kotatsu.parsers.util.*
 
+@Broken
 @MangaSourceParser("MANHWAINDO", "ManhwaIndo", "id")
 internal class ManhwaIndoParser(context: MangaLoaderContext) :
     MangaReaderParser(context, MangaParserSource.MANHWAINDO, "www.manhwaindo.my", pageSize = 30, searchPageSize = 20) {

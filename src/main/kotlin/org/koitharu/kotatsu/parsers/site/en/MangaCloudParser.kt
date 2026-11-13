@@ -6,6 +6,7 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.HttpStatusException
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -18,6 +19,7 @@ import java.util.EnumSet
 import java.util.Locale
 import java.util.TimeZone
 
+@Broken
 @MangaSourceParser("MANGACLOUD", "MangaCloud", "en", ContentType.MANGA)
 internal class MangaCloud(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.MANGACLOUD, 20) {

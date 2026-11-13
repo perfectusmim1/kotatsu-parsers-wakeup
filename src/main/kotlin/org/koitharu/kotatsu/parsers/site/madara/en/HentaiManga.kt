@@ -5,6 +5,7 @@ import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.*
@@ -12,6 +13,7 @@ import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
 import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 
+@Broken
 @MangaSourceParser("HENTAIMANGA", "HentaiManga", "en", ContentType.HENTAI)
 internal class HentaiManga(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.HENTAIMANGA, "hentaimanga.me", 36) {

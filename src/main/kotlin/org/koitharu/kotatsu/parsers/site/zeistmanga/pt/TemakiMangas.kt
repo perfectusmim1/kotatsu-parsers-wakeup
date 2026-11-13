@@ -2,12 +2,14 @@ package org.koitharu.kotatsu.parsers.site.zeistmanga.pt
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.site.zeistmanga.ZeistMangaParser
 import org.koitharu.kotatsu.parsers.util.*
 
+@Broken
 @MangaSourceParser("TEMAKIMANGAS", "TemakiMangas", "pt")
 internal class TemakiMangas(context: MangaLoaderContext) :
 	ZeistMangaParser(context, MangaParserSource.TEMAKIMANGAS, "temakimangas.blogspot.com") {

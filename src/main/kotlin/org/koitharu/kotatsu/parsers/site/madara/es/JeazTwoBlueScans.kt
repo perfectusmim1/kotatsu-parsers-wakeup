@@ -4,6 +4,7 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -37,6 +38,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.EnumSet
 
+@Broken
 @MangaSourceParser("JEAZTWOBLUESCANS", "Jeaz Scans", "es")
 internal class JeazTwoBlueScans(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.JEAZTWOBLUESCANS, pageSize = 24) {

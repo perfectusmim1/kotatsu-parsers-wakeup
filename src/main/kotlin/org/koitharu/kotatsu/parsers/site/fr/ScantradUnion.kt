@@ -2,6 +2,7 @@ package org.koitharu.kotatsu.parsers.site.fr
 
 import okhttp3.Interceptor
 import okhttp3.Response
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -13,6 +14,7 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("SCANTRADUNION", "ScantradUnion", "fr")
 internal class ScantradUnion(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.SCANTRADUNION, 10) {

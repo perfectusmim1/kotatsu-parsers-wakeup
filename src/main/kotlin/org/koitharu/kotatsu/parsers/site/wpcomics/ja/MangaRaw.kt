@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.wpcomics.ja
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.exception.NotFoundException
@@ -9,6 +10,7 @@ import org.koitharu.kotatsu.parsers.util.*
 
 // Need to use 0ms.dev Proxy
 
+@Broken
 @MangaSourceParser("MANGARAW", "MangaRaw", "ja")
 internal class MangaRaw(context: MangaLoaderContext) :
 	WpComicsParser(context, MangaParserSource.MANGARAW, "mangaraw.best") {

@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.mangareader.es
 
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.*
@@ -8,6 +9,7 @@ import org.koitharu.kotatsu.parsers.site.mangareader.MangaReaderParser
 import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 
+@Broken
 @MangaSourceParser("HENTAIREADER", "HentaiReader", "es", ContentType.HENTAI)
 internal class HentaiReader(context: MangaLoaderContext) :
 	MangaReaderParser(context, MangaParserSource.HENTAIREADER, "hentaireader.org", pageSize = 25, searchPageSize = 25) {

@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.madara.id
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.ContentRating
@@ -34,6 +35,7 @@ import java.util.EnumSet
 import java.util.LinkedHashSet
 import java.util.Locale
 
+@Broken
 @MangaSourceParser("ROSEVEIL", "Roseveil", "id")
 internal class Roseveil(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.ROSEVEIL, "roseveil.org") {

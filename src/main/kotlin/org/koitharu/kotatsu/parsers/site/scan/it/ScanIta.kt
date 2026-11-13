@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.scan.it
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.Manga
@@ -13,6 +14,7 @@ import org.koitharu.kotatsu.parsers.site.scan.ScanParser
 import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 
+@Broken
 @MangaSourceParser("SCANITA", "ScanIta.org", "it")
 internal class ScanIta(context: MangaLoaderContext) :
 	ScanParser(context, MangaParserSource.SCANITA, "scanita.org") {

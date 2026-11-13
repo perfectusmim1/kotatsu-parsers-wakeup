@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.madara.en
 
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.exception.AuthRequiredException
@@ -12,6 +13,7 @@ import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
 import org.koitharu.kotatsu.parsers.util.*
 import java.util.*
 
+@Broken
 @MangaSourceParser("DARK_SCANS", "DarkScans", "en")
 internal class DarkScans(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.DARK_SCANS, "darkscans.net", 18) {

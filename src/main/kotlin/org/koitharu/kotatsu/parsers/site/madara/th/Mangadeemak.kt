@@ -1,10 +1,12 @@
 package org.koitharu.kotatsu.parsers.site.madara.th
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
 
+@Broken
 @MangaSourceParser("MANGADEEMAK", "MangaDeemak", "th")
 internal class Mangadeemak(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.MANGADEEMAK, "mangadeemak.com", 12) {

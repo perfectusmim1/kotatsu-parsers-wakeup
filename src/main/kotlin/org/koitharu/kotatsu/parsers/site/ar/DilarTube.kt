@@ -6,6 +6,7 @@ import okhttp3.Interceptor
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -15,6 +16,7 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("DILARTUBE", "Dilar Tube", "ar", ContentType.MANGA)
 internal class DilarTube(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.DILARTUBE, 24) {

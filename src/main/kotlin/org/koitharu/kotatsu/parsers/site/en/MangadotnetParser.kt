@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.en
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -14,6 +15,7 @@ import org.koitharu.kotatsu.parsers.util.suspendlazy.suspendLazy
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("MANGADOTNET", "Mangadotnet", "en", ContentType.MANGA)
 internal class Mangadotnet(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.MANGADOTNET, pageSize = 56) {

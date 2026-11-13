@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.mangareader.en
 
 import org.jsoup.nodes.Element
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.Manga
@@ -17,6 +18,7 @@ import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 import java.text.SimpleDateFormat
 import java.util.Locale
 
+@Broken
 @MangaSourceParser("GREEDSCANS", "Greed Scans", "en")
 internal class GreedScans(context: MangaLoaderContext) :
 	MangaReaderParser(context, MangaParserSource.GREEDSCANS, "greedscans.com", pageSize = 20, searchPageSize = 10) {

@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.mangareader.es
 
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.*
@@ -11,6 +12,7 @@ import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("TU_MANHWAS", "TuManhwas.com", "es")
 internal class TuManhwas(context: MangaLoaderContext) :
 	MangaReaderParser(context, MangaParserSource.TU_MANHWAS, "tumanhwas.com", 20, 20) {

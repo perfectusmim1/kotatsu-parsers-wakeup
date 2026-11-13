@@ -8,6 +8,7 @@ import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONObject
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -24,6 +25,7 @@ import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("COMX", "Com-X", "ru", ContentType.COMICS)
 internal class ComXParser(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.COMX, 20) {

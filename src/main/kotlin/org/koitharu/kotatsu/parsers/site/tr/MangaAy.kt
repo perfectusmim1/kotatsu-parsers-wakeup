@@ -4,6 +4,7 @@ import androidx.collection.ArrayMap
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -26,6 +27,7 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("MANGAAY", "MangaAy", "tr")
 internal class MangaAy(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.MANGAAY, 45),

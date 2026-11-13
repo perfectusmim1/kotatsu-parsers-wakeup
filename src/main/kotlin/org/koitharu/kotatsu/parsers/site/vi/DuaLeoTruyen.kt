@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.vi
 
 import okhttp3.internal.closeQuietly
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -11,6 +12,7 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("DUALEOTRUYEN", "Dưa Leo Truyện", "vi", type = ContentType.HENTAI)
 internal class DuaLeoTruyen(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.DUALEOTRUYEN, 60) {

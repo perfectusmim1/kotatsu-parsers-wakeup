@@ -6,6 +6,7 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONObject
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.exception.AuthRequiredException
@@ -16,6 +17,7 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("ADULT_WEBTOON", "AdultWebtoon", "en", ContentType.HENTAI)
 internal class AdultWebtoon(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.ADULT_WEBTOON, "adultwebtoon.com") {

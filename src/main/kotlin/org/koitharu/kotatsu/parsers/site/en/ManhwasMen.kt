@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.en
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -10,6 +11,7 @@ import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("MANHWASMEN", "ManhwasMen", "en", type = ContentType.HENTAI)
 internal class ManhwasMen(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.MANHWASMEN, pageSize = 30, searchPageSize = 30) {

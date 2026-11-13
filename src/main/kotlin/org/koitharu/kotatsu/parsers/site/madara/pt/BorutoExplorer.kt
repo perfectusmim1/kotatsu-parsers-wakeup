@@ -1,10 +1,12 @@
 package org.koitharu.kotatsu.parsers.site.madara.pt
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
 
+@Broken
 @MangaSourceParser("BORUTOEXPLORER", "BorutoExplorer", "pt")
 internal class BorutoExplorer(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.BORUTOEXPLORER, "leitor.borutoexplorer.com.br", 10) {

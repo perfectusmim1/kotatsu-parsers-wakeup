@@ -2,6 +2,7 @@ package org.koitharu.kotatsu.parsers.site.en
 
 import okhttp3.Headers
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -35,6 +36,7 @@ import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.util.Calendar
 import java.util.EnumSet
 
+@Broken
 @MangaSourceParser("HEYTOON", "HeyToon", "en", ContentType.HENTAI)
 internal class HeyToonParser(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.HEYTOON, pageSize = 54, searchPageSize = 20) {

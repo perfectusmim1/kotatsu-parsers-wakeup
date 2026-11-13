@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.mangareader.tr
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.MangaListFilterCapabilities
@@ -7,6 +8,7 @@ import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.site.mangareader.MangaReaderParser
 import java.util.*
 
+@Broken
 @MangaSourceParser("ADUMANGA", "AduManga", "tr")
 internal class AduManga(context: MangaLoaderContext) :
 	MangaReaderParser(context, MangaParserSource.ADUMANGA, "adumanga.com", pageSize = 20, searchPageSize = 10) {

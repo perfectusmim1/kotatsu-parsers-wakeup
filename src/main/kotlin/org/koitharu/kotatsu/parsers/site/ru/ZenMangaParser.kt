@@ -10,6 +10,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.json.JSONArray
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -41,6 +42,7 @@ import java.util.EnumSet
 import java.util.LinkedHashSet
 import java.util.Locale
 
+@Broken
 @MangaSourceParser("ZENMANGA", "InkStory", "ru")
 internal class ZenMangaParser(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.ZENMANGA, pageSize = PAGE_SIZE) {

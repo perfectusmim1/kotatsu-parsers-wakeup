@@ -8,6 +8,7 @@ import okhttp3.Headers.Companion.headersOf
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.*
@@ -16,6 +17,7 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("YURILAB", "YuriLab", "id", ContentType.HENTAI)
 internal class YuriLab(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.YURILAB, "yurilab.top", pageSize = 30) {

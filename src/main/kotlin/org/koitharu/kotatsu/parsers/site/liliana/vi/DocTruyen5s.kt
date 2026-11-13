@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.liliana.vi
 
 import org.jsoup.Jsoup
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.MangaChapter
@@ -11,6 +12,7 @@ import org.koitharu.kotatsu.parsers.site.liliana.LilianaParser
 import org.koitharu.kotatsu.parsers.util.json.getBooleanOrDefault
 import org.koitharu.kotatsu.parsers.util.*
 
+@Broken
 @MangaSourceParser("DOCTRUYEN5S", "DocTruyen5s", "vi")
 internal class DocTruyen5s(context: MangaLoaderContext) :
 	LilianaParser(context, MangaParserSource.DOCTRUYEN5S, "manga.io.vn", 42) {

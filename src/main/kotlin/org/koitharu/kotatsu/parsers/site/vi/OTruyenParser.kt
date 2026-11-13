@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.vi
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -31,6 +32,7 @@ import java.util.EnumSet
 import java.util.Locale
 import java.util.TimeZone
 
+@Broken
 @MangaSourceParser("OTRUYEN", "Ổ Truyện", "vi")
 internal class OTruyenParser(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.OTRUYEN, 24) {

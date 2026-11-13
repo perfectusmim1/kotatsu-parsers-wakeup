@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.fmreader.ja
 
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.MangaChapter
@@ -10,6 +11,7 @@ import org.koitharu.kotatsu.parsers.site.fmreader.FmreaderParser
 import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 
+@Broken
 @MangaSourceParser("WELOVEMANGA", "WeLoveManga", "ja")
 internal class WeLoveManga(context: MangaLoaderContext) :
 	FmreaderParser(context, MangaParserSource.WELOVEMANGA, "welovemanga.one") {

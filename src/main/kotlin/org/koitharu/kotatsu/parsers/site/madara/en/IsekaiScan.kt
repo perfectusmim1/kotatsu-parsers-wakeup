@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.madara.en
 
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.*
@@ -9,6 +10,7 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("ISEKAISCAN", "IsekaiScan.top", "en")
 internal class IsekaiScan(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.ISEKAISCAN, "www.isekaiscan.top", 16) {

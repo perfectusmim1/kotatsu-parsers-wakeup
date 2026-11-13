@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.vi
 import androidx.collection.ArrayMap
 import androidx.collection.arraySetOf
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -18,6 +19,7 @@ import java.util.*
 
 private const val PAGE_SIZE = 20
 
+@Broken
 @MangaSourceParser("CMANGA", "CManga", "vi")
 internal class CMangaParser(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.CMANGA, PAGE_SIZE), MangaParserAuthProvider {

@@ -12,6 +12,7 @@ import okhttp3.Response
 import okio.IOException
 import org.json.JSONArray
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.bitmap.Bitmap
@@ -307,10 +308,12 @@ internal abstract class YuriGardenParser(
 	}
 }
 
+@Broken
 @MangaSourceParser("YURIGARDEN", "Yuri Garden", "vi")
 internal class YuriGarden(context: MangaLoaderContext) :
     YuriGardenParser(context, MangaParserSource.YURIGARDEN, "yurigarden.com", false)
 
+@Broken
 @MangaSourceParser("YURIGARDEN_R18", "Yuri Garden (18+)", "vi", type = ContentType.HENTAI)
 internal class YuriGardenR18(context: MangaLoaderContext) :
     YuriGardenParser(context, MangaParserSource.YURIGARDEN_R18, "yurigarden.com", true)

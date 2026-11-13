@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.ja
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -14,6 +15,7 @@ import java.util.*
 private const val STATUS_ONGOING = "連載"
 private const val STATUS_FINISHED = "完結"
 
+@Broken
 @MangaSourceParser("NICOVIDEO_SEIGA", "NicoVideo Seiga", "ja")
 internal class NicovideoSeigaParser(context: MangaLoaderContext) :
 	AbstractMangaParser(context, MangaParserSource.NICOVIDEO_SEIGA),

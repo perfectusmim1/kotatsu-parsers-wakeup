@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.id
 
 import org.jsoup.nodes.Element
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.network.UserAgents
@@ -10,6 +11,7 @@ import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
 import java.util.*
 
+@Broken
 @MangaSourceParser("HOTOON", "Holotoon", "id")
 internal class Holotoon(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.HOTOON, 24) {

@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.madara.tr
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.exception.AuthRequiredException
@@ -10,6 +11,7 @@ import org.koitharu.kotatsu.parsers.site.initmanga.InitMangaParser
 import org.koitharu.kotatsu.parsers.util.parseHtml
 import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 
+@Broken
 @MangaSourceParser("RAGNARSCANS", "Ragnarscans", "tr")
 internal class Ragnarscans(context: MangaLoaderContext) :
 	InitMangaParser(

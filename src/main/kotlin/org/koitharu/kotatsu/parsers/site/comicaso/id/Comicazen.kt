@@ -7,6 +7,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -39,6 +40,7 @@ import java.util.EnumSet
 import java.util.LinkedHashSet
 import java.util.Locale
 
+@Broken
 @MangaSourceParser("COMICAZEN", "Comicazen", "id")
 internal class Comicazen(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.COMICAZEN, PAGE_SIZE, PAGE_SIZE) {

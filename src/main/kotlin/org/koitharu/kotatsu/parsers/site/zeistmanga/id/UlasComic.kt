@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.zeistmanga.id
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
@@ -11,6 +12,7 @@ import org.koitharu.kotatsu.parsers.util.generateUid
 import org.koitharu.kotatsu.parsers.util.parseHtml
 import org.koitharu.kotatsu.parsers.util.selectFirstOrThrow
 
+@Broken
 @MangaSourceParser("ULASCOMIC", "UlasComic", "id")
 internal class UlasComic(context: MangaLoaderContext):
 	ZeistMangaParser(context, MangaParserSource.ULASCOMIC, "www.ulascomic01.xyz") {

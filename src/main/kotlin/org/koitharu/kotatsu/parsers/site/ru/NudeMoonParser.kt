@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.ru
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -11,6 +12,7 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("NUDEMOON", "Nude-Moon", "ru", type = ContentType.HENTAI)
 internal class NudeMoonParser(
 	context: MangaLoaderContext,

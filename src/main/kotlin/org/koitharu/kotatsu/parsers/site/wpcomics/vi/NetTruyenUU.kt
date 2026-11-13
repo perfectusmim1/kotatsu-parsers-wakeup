@@ -6,6 +6,7 @@ import kotlinx.coroutines.coroutineScope
 import org.jsoup.nodes.Element
 import androidx.collection.ArrayMap
 import kotlinx.coroutines.sync.withLock
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.exception.NotFoundException
@@ -14,6 +15,7 @@ import org.koitharu.kotatsu.parsers.site.wpcomics.WpComicsParser
 import org.koitharu.kotatsu.parsers.util.*
 import java.util.*
 
+@Broken
 @MangaSourceParser("NETTRUYENUU", "NetTruyenUU", "vi")
 internal class NetTruyenUU(context: MangaLoaderContext) :
 	WpComicsParser(context, MangaParserSource.NETTRUYENUU, GLOBAL_NETTRUYEN_DOMAIN, 20) {

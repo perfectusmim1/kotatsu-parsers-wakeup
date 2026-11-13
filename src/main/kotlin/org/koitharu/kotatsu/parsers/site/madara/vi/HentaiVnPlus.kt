@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.madara.vi
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.ContentRating
@@ -14,6 +15,7 @@ import org.koitharu.kotatsu.parsers.util.oneOrThrowIfMany
 import org.koitharu.kotatsu.parsers.util.parseHtml
 import org.koitharu.kotatsu.parsers.util.urlEncoded
 
+@Broken
 @MangaSourceParser("HENTAIVNPLUS", "HentaiVN.plus", "vi", ContentType.HENTAI)
 internal class HentaiVnPlus(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.HENTAIVNPLUS, "hentaivn.party", 24) {

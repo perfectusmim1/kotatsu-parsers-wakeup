@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.zmanga.id
 
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.ContentType
@@ -13,6 +14,7 @@ import org.koitharu.kotatsu.parsers.util.mapChapters
 import org.koitharu.kotatsu.parsers.util.selectFirstOrThrow
 import java.text.SimpleDateFormat
 
+@Broken
 @MangaSourceParser("SHIRO_DOUJIN", "ShiroDoujin", "id", ContentType.HENTAI)
 internal class ShiroDoujin(context: MangaLoaderContext) :
 	ZMangaParser(context, MangaParserSource.SHIRO_DOUJIN, "shirodoujin.com") {

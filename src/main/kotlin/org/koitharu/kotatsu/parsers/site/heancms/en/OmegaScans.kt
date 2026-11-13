@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.heancms.en
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -24,6 +25,7 @@ import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.util.Locale
 
+@Broken
 @MangaSourceParser("OMEGASCANS", "OmegaScans", "en", ContentType.HENTAI)
 internal class OmegaScans(context: MangaLoaderContext) :
 	HeanCms(context, MangaParserSource.OMEGASCANS, "omegascans.org"),

@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.ru.multichan
 
 import okhttp3.HttpUrl
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -8,6 +9,7 @@ import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
 import java.util.*
 
+@Broken
 @MangaSourceParser("HENCHAN", "Хентай-тян", "ru", type = ContentType.HENTAI)
 internal class HenChanParser(context: MangaLoaderContext) : ChanParser(context, MangaParserSource.HENCHAN) {
 

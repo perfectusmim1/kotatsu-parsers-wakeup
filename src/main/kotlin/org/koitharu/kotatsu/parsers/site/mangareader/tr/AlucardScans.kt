@@ -4,6 +4,7 @@ import okhttp3.Headers
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -34,6 +35,7 @@ import java.util.EnumSet
 import java.util.Locale
 import java.util.TimeZone
 
+@Broken
 @MangaSourceParser("ALUCARDSCANS", "AlucardScans", "tr")
 internal class AlucardScans(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.ALUCARDSCANS, 24) {

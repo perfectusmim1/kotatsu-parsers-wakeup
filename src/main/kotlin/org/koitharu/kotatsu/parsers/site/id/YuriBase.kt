@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.id
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -12,6 +13,7 @@ import org.json.JSONArray
 import java.util.*
 import okhttp3.HttpUrl.Companion.toHttpUrl
 
+@Broken
 @MangaSourceParser("YURIBASE", "YuriBase", "id", type = ContentType.HENTAI)
 internal class YuriBase(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.YURIBASE, 16) {

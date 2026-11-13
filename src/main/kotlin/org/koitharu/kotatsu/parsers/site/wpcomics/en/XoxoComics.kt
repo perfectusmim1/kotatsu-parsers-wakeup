@@ -4,6 +4,7 @@ import androidx.collection.ArrayMap
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.withLock
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.ContentRating
@@ -35,6 +36,7 @@ import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 
+@Broken
 @MangaSourceParser("XOXOCOMICS", "XoxoComics", "en", ContentType.COMICS)
 internal class XoxoComics(context: MangaLoaderContext) :
     WpComicsParser(context, MangaParserSource.XOXOCOMICS, "xoxocomic.com", 36) {

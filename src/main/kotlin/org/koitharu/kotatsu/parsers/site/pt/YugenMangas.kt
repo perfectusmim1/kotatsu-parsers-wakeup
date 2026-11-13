@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.pt
 
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -13,6 +14,7 @@ import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("YUGENMANGAS", "YugenApp", "pt")
 internal class YugenMangas(context: MangaLoaderContext) :
 	SinglePageMangaParser(context, MangaParserSource.YUGENMANGAS) {

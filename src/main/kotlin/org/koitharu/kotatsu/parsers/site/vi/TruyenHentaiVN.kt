@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.vi
 
 import androidx.collection.ArrayMap
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -11,6 +12,7 @@ import org.koitharu.kotatsu.parsers.util.suspendlazy.suspendLazy
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("TRUYENHENTAIVN", "TruyenHentaiVN", "vi", type = ContentType.HENTAI)
 internal class TruyenHentaiVN(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.TRUYENHENTAIVN, 30) {

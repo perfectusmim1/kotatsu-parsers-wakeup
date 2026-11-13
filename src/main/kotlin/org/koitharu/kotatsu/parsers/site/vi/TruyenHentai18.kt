@@ -2,6 +2,7 @@ package org.koitharu.kotatsu.parsers.site.vi
 
 import org.json.JSONObject
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -12,6 +13,7 @@ import org.koitharu.kotatsu.parsers.util.json.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("TRUYENHENTAI18", "TruyenHentai18", "vi", ContentType.HENTAI)
 internal class TruyenHentai18(context: MangaLoaderContext):
 	PagedMangaParser(context, MangaParserSource.TRUYENHENTAI18, 18) {

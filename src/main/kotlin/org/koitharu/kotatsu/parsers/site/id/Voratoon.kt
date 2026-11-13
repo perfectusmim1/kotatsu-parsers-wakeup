@@ -5,6 +5,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -26,6 +27,7 @@ import java.util.*
  * The site has no API to ask any more: what a page shows comes inside the page, in the payload its scripts hand to
  * Next.js, and that is where everything is read from.
  */
+@Broken
 @MangaSourceParser("VORATOON", "Voratoon", "id")
 internal class Voratoon(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.VORATOON, pageSize = 30) {

@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.madara.tr
 
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.ContentType
@@ -16,6 +17,7 @@ import org.koitharu.kotatsu.parsers.util.removeSuffix
 import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 import java.text.SimpleDateFormat
 
+@Broken
 @MangaSourceParser("LAVINIAFANSUB", "LaviniaFansub", "tr", ContentType.HENTAI)
 internal class LaviniaFansub(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.LAVINIAFANSUB, "laviniafansub.site", 18) {

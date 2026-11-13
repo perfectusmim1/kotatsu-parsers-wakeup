@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.galleryadults.all
 
 import org.jsoup.nodes.Element
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.ContentType
@@ -12,6 +13,7 @@ import org.koitharu.kotatsu.parsers.util.mapToSet
 import org.koitharu.kotatsu.parsers.util.removeSuffix
 import java.util.*
 
+@Broken
 @MangaSourceParser("HENTAIROX", "HentaiRox", type = ContentType.HENTAI)
 internal class HentaiRox(context: MangaLoaderContext) :
 	GalleryAdultsParser(context, MangaParserSource.HENTAIROX, "hentairox.com") {

@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.madara.ar
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -15,6 +16,7 @@ import org.koitharu.kotatsu.parsers.util.*
  * The site also hosts novels, which are most of what it updates. Their chapters are text, so only the titles
  * with image chapters are listed. The page of a title is the site's own design, unlike the rest of the theme.
  */
+@Broken
 @MangaSourceParser("HIZOMANGA", "HizoManga", "ar")
 internal class HizoManga(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.HIZOMANGA, "hizomanga.net") {

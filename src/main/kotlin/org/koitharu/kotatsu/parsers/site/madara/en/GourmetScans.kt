@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.madara.en
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.Manga
@@ -17,6 +18,7 @@ import org.koitharu.kotatsu.parsers.util.toTitleCase
 import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.util.EnumSet
 
+@Broken
 @MangaSourceParser("GOURMETSCANS", "GourmetScans", "en")
 internal class GourmetScans(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.GOURMETSCANS, "gourmetsupremacy.com") {

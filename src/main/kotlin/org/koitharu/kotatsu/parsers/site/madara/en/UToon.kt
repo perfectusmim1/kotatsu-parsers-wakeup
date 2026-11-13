@@ -4,6 +4,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -14,6 +15,7 @@ import java.util.Calendar
 import java.util.EnumSet
 import java.util.Locale
 
+@Broken
 @MangaSourceParser("UTOON", "UToon", "en")
 internal class UToon(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.UTOON, pageSize = 28) {

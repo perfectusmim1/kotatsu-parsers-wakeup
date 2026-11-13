@@ -6,6 +6,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -29,6 +30,7 @@ import org.koitharu.kotatsu.parsers.util.json.getBooleanOrDefault
 import org.koitharu.kotatsu.parsers.util.json.getStringOrNull
 import org.koitharu.kotatsu.parsers.util.json.toJSONObjectOrNull
 
+@Broken
 @MangaSourceParser("TENSHIMANGA", "Tenshi Manga", "tr")
 internal class TenshiManga(context: MangaLoaderContext) :
 	UzayMangaParser(

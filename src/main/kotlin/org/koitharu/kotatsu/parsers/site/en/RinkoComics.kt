@@ -6,6 +6,7 @@ import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -19,6 +20,7 @@ import java.util.EnumSet
 import java.util.LinkedHashMap
 import java.util.Locale
 
+@Broken
 @MangaSourceParser("RINKOCOMICS", "Rinko Comics", "en", ContentType.COMICS)
 internal class RinkoComics(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.RINKOCOMICS, 20) {

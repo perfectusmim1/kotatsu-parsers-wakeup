@@ -4,6 +4,7 @@ import okhttp3.Headers
 import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -14,6 +15,7 @@ import org.koitharu.kotatsu.parsers.util.json.toJSONObjectOrNull
 import org.koitharu.kotatsu.parsers.util.suspendlazy.suspendLazy
 import java.util.*
 
+@Broken
 @MangaSourceParser("CGBUM", "CGBUM", "id", ContentType.HENTAI)
 internal class CgBum(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.CGBUM, pageSize = 24) {

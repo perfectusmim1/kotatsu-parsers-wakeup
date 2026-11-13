@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.madara.pt
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.ContentType
@@ -10,6 +11,7 @@ import org.koitharu.kotatsu.parsers.util.mapNotNullToSet
 import org.koitharu.kotatsu.parsers.util.parseHtml
 import org.koitharu.kotatsu.parsers.util.toTitleCase
 
+@Broken
 @MangaSourceParser("MRBENNE", "MrBenne", "pt", ContentType.HENTAI)
 internal class MrBenne(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.MRBENNE, "mrbenne.com", 10) {

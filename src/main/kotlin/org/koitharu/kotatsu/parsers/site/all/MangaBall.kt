@@ -16,6 +16,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.HttpStatusException
 import org.jsoup.Jsoup
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -846,9 +847,11 @@ internal abstract class MangaBallParser(
 	@MangaSourceParser("MANGABALL_BG", "Manga Ball (Bulgarian)", "bg")
 	class Bulgarian(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_BG, setOf("bg"))
 
+	@Broken
 	@MangaSourceParser("MANGABALL_BN", "Manga Ball (Bengali)", "bn")
 	class Bengali(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_BN, setOf("bn"))
 
+	@Broken
 	@MangaSourceParser("MANGABALL_CA", "Manga Ball (Catalan)", "ca")
 	class Catalan(context: MangaLoaderContext) : MangaBallParser(
 		context,
@@ -887,6 +890,7 @@ internal abstract class MangaBallParser(
 	@MangaSourceParser("MANGABALL_FR", "Manga Ball (French)", "fr")
 	class French(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_FR, setOf("fr"))
 
+	@Broken
 	@MangaSourceParser("MANGABALL_HE", "Manga Ball (Hebrew)", "he")
 	class Hebrew(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_HE, setOf("he"))
 
@@ -906,6 +910,7 @@ internal abstract class MangaBallParser(
 		setOf("it", "it-it"),
 	)
 
+	@Broken
 	@MangaSourceParser("MANGABALL_IS", "Manga Ball (Icelandic)", "is")
 	class Icelandic(context: MangaLoaderContext) : MangaBallParser(
 		context,
@@ -919,6 +924,7 @@ internal abstract class MangaBallParser(
 	@MangaSourceParser("MANGABALL_KO", "Manga Ball (Korean)", "ko")
 	class Korean(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_KO, setOf("ko", "kr"))
 
+	@Broken
 	@MangaSourceParser("MANGABALL_KN", "Manga Ball (Kannada)", "kn")
 	class Kannada(context: MangaLoaderContext) : MangaBallParser(
 		context,
@@ -926,6 +932,7 @@ internal abstract class MangaBallParser(
 		setOf("kn", "kn-in", "kn-my", "kn-sg", "kn-tw"),
 	)
 
+	@Broken
 	@MangaSourceParser("MANGABALL_ML", "Manga Ball (Malayalam)", "ml")
 	class Malayalam(context: MangaLoaderContext) : MangaBallParser(
 		context,
@@ -936,6 +943,7 @@ internal abstract class MangaBallParser(
 	@MangaSourceParser("MANGABALL_MS", "Manga Ball (Malay)", "ms")
 	class Malay(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_MS, setOf("ms"))
 
+	@Broken
 	@MangaSourceParser("MANGABALL_NE", "Manga Ball (Nepali)", "ne")
 	class Nepali(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_NE, setOf("ne"))
 
@@ -965,15 +973,19 @@ internal abstract class MangaBallParser(
 	@MangaSourceParser("MANGABALL_RU", "Manga Ball (Russian)", "ru")
 	class Russian(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_RU, setOf("ru"))
 
+	@Broken
 	@MangaSourceParser("MANGABALL_SK", "Manga Ball (Slovak)", "sk")
 	class Slovak(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_SK, setOf("sk"))
 
+	@Broken
 	@MangaSourceParser("MANGABALL_SL", "Manga Ball (Slovenian)", "sl")
 	class Slovenian(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_SL, setOf("sl"))
 
+	@Broken
 	@MangaSourceParser("MANGABALL_SQ", "Manga Ball (Albanian)", "sq")
 	class Albanian(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_SQ, setOf("sq"))
 
+	@Broken
 	@MangaSourceParser("MANGABALL_SR", "Manga Ball (Serbian)", "sr")
 	class Serbian(context: MangaLoaderContext) : MangaBallParser(
 		context,
@@ -984,6 +996,7 @@ internal abstract class MangaBallParser(
 	@MangaSourceParser("MANGABALL_SV", "Manga Ball (Swedish)", "sv")
 	class Swedish(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_SV, setOf("sv"))
 
+	@Broken
 	@MangaSourceParser("MANGABALL_TA", "Manga Ball (Tamil)", "ta")
 	class Tamil(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_TA, setOf("ta"))
 
@@ -997,6 +1010,7 @@ internal abstract class MangaBallParser(
 	@MangaSourceParser("MANGABALL_TR", "Manga Ball (Turkish)", "tr")
 	class Turkish(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_TR, setOf("tr"))
 
+	@Broken
 	@MangaSourceParser("MANGABALL_UK", "Manga Ball (Ukrainian)", "uk")
 	class Ukrainian(context: MangaLoaderContext) : MangaBallParser(context, MangaParserSource.MANGABALL_UK, setOf("uk"))
 

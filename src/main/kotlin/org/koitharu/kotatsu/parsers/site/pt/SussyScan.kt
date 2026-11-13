@@ -4,6 +4,7 @@ import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -31,6 +32,7 @@ import org.koitharu.kotatsu.parsers.util.toTitleCase
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 
+@Broken
 @MangaSourceParser("SUSSYSCAN", "SussyScan", "pt")
 internal class SussyScan(context: MangaLoaderContext) : PagedMangaParser(
 	context,

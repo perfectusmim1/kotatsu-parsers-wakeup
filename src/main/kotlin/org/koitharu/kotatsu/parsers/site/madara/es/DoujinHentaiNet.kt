@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.madara.es
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.*
@@ -12,6 +13,7 @@ import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
 
+@Broken
 @MangaSourceParser("DOUJIN_HENTAI_NET", "DoujinHentai.net", "es", ContentType.HENTAI)
 internal class DoujinHentaiNet(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.DOUJIN_HENTAI_NET, "doujinhentai.net", 18) {

@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.wpcomics.vi
 import androidx.collection.ArraySet
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.exception.ParseException
@@ -12,6 +13,7 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("NEWTRUYEN", "NewTruyen", "vi")
 internal class NewTruyen(context: MangaLoaderContext) :
 	WpComicsParser(context, MangaParserSource.NEWTRUYEN, "newtruyentranh4.com", 36) {
