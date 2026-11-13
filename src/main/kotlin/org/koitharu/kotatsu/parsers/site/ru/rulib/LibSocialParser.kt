@@ -485,10 +485,10 @@ internal abstract class LibSocialParser(
 		return result
 	}
 
-	private suspend fun getAuthData(): JSONObject? {
-		val raw = WebViewHelper(context).getLocalStorageValue(domain, "auth") ?: return null
-		return JSONObject(raw.unescapeJson().removeSurrounding('"'))
-	}
+	private suspend fun getAuthData(): JSONObject? = runCatchingCancellable {
+		val raw = WebViewHelper(context).getLocalStorageValue(domain, "auth") ?: return@runCatchingCancellable null
+		JSONObject(raw.unescapeJson().removeSurrounding('"'))
+	}.getOrNull()
 
 	override suspend fun getMangaCommunityInfo(
 		manga: Manga,

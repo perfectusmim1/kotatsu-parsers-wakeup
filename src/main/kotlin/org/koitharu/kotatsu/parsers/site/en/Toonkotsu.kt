@@ -196,7 +196,7 @@ internal class Toonkotsu(context: MangaLoaderContext) :
 			publicUrl = publicPath.toAbsoluteUrl(domain),
 			title = json.getString("title"),
 			altTitles = emptySet(),
-			coverUrl = json.getStringOrNull("cover")?.toAbsoluteUrl(domain),
+			coverUrl = json.getStringOrNull("cover")?.nullIfEmpty()?.toAbsoluteUrl(domain),
 			rating = json.getIntOrDefault("score", -1).let { if (it >= 0) it / 100f else RATING_UNKNOWN },
 			contentRating = if (json.getBooleanOrDefault("adult", false)) ContentRating.ADULT else ContentRating.SAFE,
 			tags = json.optJSONArray("tags")?.asTypedList<String>().orEmpty()

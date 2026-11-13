@@ -20,7 +20,7 @@ internal class Hentai3(context: MangaLoaderContext) :
 	override val selectTag = "div.tag-container:contains(Tags)"
 	override val selectAuthor = "div.tag-container:contains(Artists) .filter-elem a"
 	override val selectLanguageChapter = "div.tag-container:contains(Languages) a"
-	override val selectUrlChapter = "#main-cover a"
+	override val selectUrlChapter = "a.main-cover"
 	override val idImg = ".js-main-img"
 
 	override val filterCapabilities: MangaListFilterCapabilities

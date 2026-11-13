@@ -168,7 +168,9 @@ internal abstract class HotComicsParser(
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
 		val fullUrl = chapter.url.toAbsoluteUrl(domain)
 		val doc = webClient.httpGet(fullUrl).parseHtml()
-		return doc.select(selectPages).map { img ->
+		return doc.select(selectPages)
+			.filterNot { it.hasClass("last_image") }
+			.map { img ->
 			val url = img.requireSrc()
 			MangaPage(
 				id = generateUid(url),

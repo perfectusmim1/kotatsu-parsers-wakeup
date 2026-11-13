@@ -12,7 +12,7 @@ internal class ManhwaListOrg(context: MangaLoaderContext) :
 	MangaReaderParser(
 		context,
 		MangaParserSource.MANHWALIST_ORG,
-		"isekaikomik.com",
+		"ch1.isekaikomik.site",
 		pageSize = 30,
 		searchPageSize = 10,
 	) {

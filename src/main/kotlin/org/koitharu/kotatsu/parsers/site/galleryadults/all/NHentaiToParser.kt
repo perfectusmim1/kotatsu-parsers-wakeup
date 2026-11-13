@@ -43,9 +43,13 @@ internal class NHentaiToParser(context: MangaLoaderContext) :
 			append(domain)
 			when {
 				filter.tags.isEmpty() && filter.locale == null -> {
-					append("/search/?q=")
-					append(if (filter.query.isNullOrEmpty()) "" else filter.query.urlEncoded())
-					append("&")
+					if (filter.query.isNullOrEmpty()) {
+						append("/home?")
+					} else {
+						append("/search/?q=")
+						append(filter.query.urlEncoded())
+						append("&")
+					}
 				}
 
 				else -> {

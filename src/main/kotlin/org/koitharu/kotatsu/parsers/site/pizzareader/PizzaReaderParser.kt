@@ -107,7 +107,7 @@ internal abstract class PizzaReaderParser(
 					val href = "/api" + j.getString("url")
 
 					if (filter.tags.isNotEmpty()) {
-						val a = j.getJSONArray("genres").toString()
+						val a = j.optJSONArray("genres")?.toString().orEmpty()
 						foundTag = false
 						filter.tags.forEach {
 							if (a.contains(it.key, ignoreCase = true)) {
@@ -117,7 +117,7 @@ internal abstract class PizzaReaderParser(
 					}
 
 					if (filter.tagsExclude.isNotEmpty()) {
-						val a = j.getJSONArray("genres").toString()
+						val a = j.optJSONArray("genres")?.toString().orEmpty()
 						foundTagExclude = false
 						filter.tagsExclude.forEach {
 							if (!a.contains(it.key, ignoreCase = true)) {
@@ -127,7 +127,7 @@ internal abstract class PizzaReaderParser(
 					}
 
 					if (filter.states.isNotEmpty()) {
-						val a = j.getString("status")
+						val a = j.getStringOrNull("status").orEmpty()
 						foundState = false
 						filter.states.oneOrThrowIfMany()?.let {
 							if (a.lowercase().contains(
@@ -148,7 +148,7 @@ internal abstract class PizzaReaderParser(
 					}
 
 					if (filter.contentRating.isNotEmpty()) {
-						val a = j.getInt("adult")
+						val a = j.optInt("adult", 0)
 						foundContentRating = false
 						filter.contentRating.oneOrThrowIfMany()?.let {
 							if (a == (
@@ -176,29 +176,31 @@ internal abstract class PizzaReaderParser(
 	}
 
 	private fun addManga(href: String, j: JSONObject): Manga {
-		val isNsfwSource = when (j.getString("adult").toInt()) {
-			0 -> false
-			1 -> true
-			else -> true
+		val isNsfwSource = j.optInt("adult", 0) == 1
+		val author = j.getStringOrNull("author")
+		val altTitlesArray = j.optJSONArray("alt_titles")
+		val altTitles: Set<String> = if (altTitlesArray != null) {
+			buildSet {
+				for (i in 0 until altTitlesArray.length()) {
+					altTitlesArray.optString(i).nullIfEmpty()?.let(::add)
+				}
+			}
+		} else {
+			emptySet()
 		}
-		val author = j.getString("author")
 		return Manga(
 			id = generateUid(href),
 			url = href,
 			publicUrl = href.toAbsoluteUrl(domain),
-			coverUrl = j.getString("thumbnail"),
+			coverUrl = j.getStringOrNull("thumbnail"),
 			title = j.getString("title"),
-			description = j.getString("description"),
-			altTitles = j.getJSONArray("alt_titles").toString()
-				.replace("[\"", "")
-				.replace("\"]", "")
-				.split("\",\"")
-				.toSet(),
-			rating = j.getString("rating").toFloatOrNull()?.div(10f)
+			description = j.getStringOrNull("description"),
+			altTitles = altTitles,
+			rating = j.opt("rating")?.takeUnless { it == JSONObject.NULL }?.toString()?.toFloatOrNull()?.div(10f)
 				?: RATING_UNKNOWN,
 			tags = emptySet(),
 			authors = setOfNotNull(author),
-			state = when (j.getString("status").lowercase()) {
+			state = when (j.getStringOrNull("status")?.lowercase()) {
 				in ongoing -> MangaState.ONGOING
 				in finished -> MangaState.FINISHED
 				in paused -> MangaState.PAUSED

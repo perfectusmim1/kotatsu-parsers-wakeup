@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentHashMap
 internal class Softkomik(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.SOFTKOMIK, pageSize = 24) {
 
-    override val configKeyDomain = ConfigKey.Domain("softkomik.co")
+    override val configKeyDomain = ConfigKey.Domain("softkomik.app", "softkomik.co")
 
     private val apiUrl = "https://v2.softdevices.my.id"
     private val coverUrl = "https://cover.softdevices.my.id/softkomik-cover"

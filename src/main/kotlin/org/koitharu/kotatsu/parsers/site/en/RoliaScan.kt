@@ -264,6 +264,7 @@ internal class RoliaScan(context: MangaLoaderContext) :
 		val chapterId = chapter.url
 			.toAbsoluteUrl(domain)
 			.substringBefore('?')
+			.trimEnd('/')
 			.substringAfterLast('/')
 			.substringAfterLast('-')
 			.nullIfEmpty()

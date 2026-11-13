@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
+import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONObject
 import org.jsoup.nodes.Document
@@ -19,6 +20,7 @@ import org.koitharu.kotatsu.parsers.util.json.getStringOrNull
 import org.koitharu.kotatsu.parsers.util.suspendlazy.getOrNull
 import org.koitharu.kotatsu.parsers.util.suspendlazy.suspendLazy
 import java.io.IOException
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -73,6 +75,11 @@ internal class ComXParser(context: MangaLoaderContext) :
 			return@synchronized true
 		}
 
+		if (runCatching { runBlocking { solveDleGuardChallenge(url) } }.getOrDefault(false)) {
+			lastGuardSolveAt = System.currentTimeMillis()
+			return@synchronized true
+		}
+
 		val result = runCatching {
 			runBlocking {
 				context.evaluateJs(url, DLE_GUARD_SCRIPT, GUARD_TIMEOUT_MS)
@@ -87,6 +94,50 @@ internal class ComXParser(context: MangaLoaderContext) :
 		context.cookieJar.insertCookies(domain, "$trustCookie; Path=/")
 		lastGuardSolveAt = System.currentTimeMillis()
 		true
+	}
+
+	private suspend fun solveDleGuardChallenge(url: String): Boolean {
+		val request = Request.Builder()
+			.get()
+			.url(url)
+			.tag(MangaSource::class.java, source)
+			.build()
+		val token = context.httpClient.newCall(request).await().use { response ->
+			if (response.request.url.pathSegments.firstOrNull() != DLE_GUARD_PATH) {
+				return true
+			}
+			DLE_GUARD_TOKEN_REGEX.find(response.requireBody().string())?.groupValues?.get(1)
+		} ?: return false
+		val startedAt = System.currentTimeMillis()
+		val digest = MessageDigest.getInstance("SHA-256")
+		val nonce = (0 until DLE_GUARD_MAX_NONCE).firstOrNull { n ->
+			digest.digest("$token:$n".toByteArray())[0] == 0.toByte()
+		} ?: return false
+		val hash = digest.digest("$token:$nonce".toByteArray()).joinToString("") { "%02x".format(it) }
+		val waitMs = maxOf(DLE_GUARD_MIN_WORK_MS, (nonce / 50 + 1) * 17L) - (System.currentTimeMillis() - startedAt)
+		if (waitMs > 0L) {
+			kotlinx.coroutines.delay(waitMs)
+		}
+		val form = mapOf(
+			"token" to token.urlEncoded(),
+			"mode" to "modern",
+			"workTime" to (System.currentTimeMillis() - startedAt).toString(),
+			"iterations" to (nonce + 1).toString(),
+			"hasCrypto" to "1",
+			"pow_nonce" to nonce.toString(),
+			"pow_hash" to hash,
+			"webdriver" to "0",
+			"touch" to "1",
+			"screen_w" to "412",
+			"screen_h" to "915",
+			"screen_cd" to "24",
+			"tz" to (-TimeZone.getDefault().getOffset(startedAt) / 60_000).toString(),
+			"dpr" to "2.625",
+			"cdp" to "0",
+			"cdpf" to "",
+		)
+		webClient.httpPost("https://$domain/_v".toHttpUrl(), form).close()
+		return context.cookieJar.getCookies(domain).any { it.name == DLE_TRUST_COOKIE }
 	}
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(
@@ -449,6 +500,9 @@ internal class ComXParser(context: MangaLoaderContext) :
 		private const val MIN_YEAR = 1980
 		private const val DLE_GUARD_PATH = "_c"
 		private const val DLE_TRUST_COOKIE = "__guard_trust"
+		private const val DLE_GUARD_MAX_NONCE = 100_000
+		private const val DLE_GUARD_MIN_WORK_MS = 250L
+		private val DLE_GUARD_TOKEN_REGEX = Regex("""token:\s*"([^"]+)"""")
 		private const val GUARD_TIMEOUT_MS = 30_000L
 		private const val GUARD_TRUST_WINDOW_MS = 5_000L
 		private val FILTER_KEYS = arrayOf("p.cat", "g", "t")

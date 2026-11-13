@@ -6,6 +6,7 @@ import org.koitharu.kotatsu.parsers.model.ContentRating
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaListFilter
+import org.koitharu.kotatsu.parsers.model.MangaPage
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.model.MangaState
 import org.koitharu.kotatsu.parsers.model.MangaTag
@@ -137,6 +138,27 @@ internal class MangaKoma01(context: MangaLoaderContext) :
 					)
 				},
 		)
+	}
+
+	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
+		val fullUrl = chapter.url.toAbsoluteUrl(domain)
+		val doc = webClient.httpGet(fullUrl).parseHtml()
+		val directPages = doc.select(".reading-detail .page-chapter img, .page-chapter img").mapNotNull { img ->
+			val url = img.attr("data-original").takeIf { it.isNotBlank() }
+				?: img.attr("data-src").takeIf { it.isNotBlank() }
+				?: img.src()?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
+				?: return@mapNotNull null
+			MangaPage(
+				id = generateUid(url),
+				url = url,
+				preview = null,
+				source = source,
+			)
+		}
+		if (directPages.isNotEmpty()) {
+			return directPages
+		}
+		return super.getPages(chapter)
 	}
 
 	override suspend fun getAvailableTags(): Set<MangaTag> {

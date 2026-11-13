@@ -18,9 +18,6 @@ import javax.crypto.spec.SecretKeySpec
 internal object MangaReaderScriptSupport {
 
 	private const val BASE62_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	private val PACKED_SCRIPT_REGEX = Regex(
-		"""(?s)\}\s*\(\s*(['"])((?:\\.|(?!\1)[^\\])*)\1\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(['"])((?:\\.|(?!\5)[^\\])*)\5\.split""",
-	)
 	private val WORD_TOKEN_REGEX = Regex("""\b[0-9a-zA-Z]+\b""")
 	private val TRAILING_ARRAY_COMMA_REGEX = Regex(""",\s*]""")
 	private val TRAILING_OBJ_COMMA_REGEX = Regex(""",\s*}""")
@@ -197,11 +194,11 @@ internal object MangaReaderScriptSupport {
 	}
 
 	fun unpackDeanEdwards(packedScript: String): String? {
-		val match = PACKED_SCRIPT_REGEX.find(packedScript) ?: return null
-		var payload = match.groupValues[2]
-		val base = match.groupValues[3].toIntOrNull() ?: return null
+		val args = findPackedScriptArgs(packedScript) ?: return null
+		var payload = args.payload
+		val base = args.base
 		if (base !in 2..62) return null
-		val dictionary = match.groupValues[6].split("|")
+		val dictionary = args.symtab.split("|")
 		val decodedLookup = HashMap<String, String>(dictionary.size)
 		for (i in dictionary.indices) {
 			val word = dictionary[i]
@@ -216,6 +213,79 @@ internal object MangaReaderScriptSupport {
 			.replace("\\/", "/")
 			.replace("\\'", "'")
 			.replace("\\\"", "\"")
+	}
+
+	private class PackedArgs(val payload: String, val base: Int, val symtab: String)
+
+	private fun findPackedScriptArgs(text: String): PackedArgs? {
+		val len = text.length
+		var searchFrom = 0
+		while (searchFrom < len) {
+			val braceIdx = text.indexOf('}', searchFrom)
+			if (braceIdx == -1) return null
+			searchFrom = braceIdx + 1
+
+			var i = skipWs(text, braceIdx + 1)
+			if (i >= len || text[i] != '(') continue
+			i = skipWs(text, i + 1)
+			if (i >= len || (text[i] != '\'' && text[i] != '"')) continue
+
+			val payloadEnd = findJsStringEnd(text, i) ?: continue
+			val payload = text.substring(i + 1, payloadEnd)
+
+			i = skipWs(text, payloadEnd + 1)
+			if (i >= len || text[i] != ',') continue
+			i = skipWs(text, i + 1)
+
+			val baseStart = i
+			while (i < len && text[i].isDigit()) i++
+			if (i == baseStart) continue
+			val base = text.substring(baseStart, i).toIntOrNull() ?: continue
+
+			i = skipWs(text, i)
+			if (i >= len || text[i] != ',') continue
+			i = skipWs(text, i + 1)
+
+			val countStart = i
+			while (i < len && text[i].isDigit()) i++
+			if (i == countStart) continue
+
+			i = skipWs(text, i)
+			if (i >= len || text[i] != ',') continue
+			i = skipWs(text, i + 1)
+			if (i >= len || (text[i] != '\'' && text[i] != '"')) continue
+
+			val symtabEnd = findJsStringEnd(text, i) ?: continue
+			val symtab = text.substring(i + 1, symtabEnd)
+
+			i = skipWs(text, symtabEnd + 1)
+			if (!text.startsWith(".split", i)) continue
+
+			return PackedArgs(payload, base, symtab)
+		}
+		return null
+	}
+
+	private fun skipWs(text: String, start: Int): Int {
+		var i = start
+		while (i < text.length && text[i].isWhitespace()) i++
+		return i
+	}
+
+	private fun findJsStringEnd(text: String, quoteIdx: Int): Int? {
+		val quote = text[quoteIdx]
+		var i = quoteIdx + 1
+		while (i < text.length) {
+			val ch = text[i]
+			if (ch == '\\') {
+				i += 2
+			} else if (ch == quote) {
+				return i
+			} else {
+				i++
+			}
+		}
+		return null
 	}
 
 	private fun encodeBase(value: Int, radix: Int): String {

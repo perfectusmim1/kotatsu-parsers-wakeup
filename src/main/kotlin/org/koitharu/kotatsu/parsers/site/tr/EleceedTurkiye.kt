@@ -43,6 +43,7 @@ internal class EleceedTurkiye(context: MangaLoaderContext) :
 	MangaSourceCommunityProvider {
 
 	override val configKeyDomain = ConfigKey.Domain(
+		"www.nabicix.com",
 		"eleceedturkiye.com",
 		"www.eleceedturkiye.com",
 	)
@@ -98,13 +99,14 @@ internal class EleceedTurkiye(context: MangaLoaderContext) :
 	override suspend fun getFilterOptions() = MangaListFilterOptions()
 
 	override suspend fun getList(order: SortOrder, filter: MangaListFilter): List<Manga> {
-		val raw = webClient.httpGet("https://$domain").parseHtml()
-		val coverUrl = raw.select("div.thumb img").attr("src")
+		val seriesUrl = "https://$domain/manga/eleceed/"
+		val raw = webClient.httpGet(seriesUrl).parseHtml()
+		val coverUrl = raw.selectFirst("div.thumb img")?.src()?.nullIfEmpty()
 		return listOf(
 			Manga(
 				id = generateUid(mangaId),
-				url = "https://$domain/",
-				publicUrl = "https://$domain/",
+				url = seriesUrl,
+				publicUrl = seriesUrl,
 				coverUrl = coverUrl,
 				title = "Eleceed",
 				altTitles = emptySet(),

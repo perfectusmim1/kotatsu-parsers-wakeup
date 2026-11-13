@@ -279,7 +279,7 @@ internal class RocksManga(context: MangaLoaderContext) :
 		val doc = webClient.httpGet(fullUrl).parseHtml()
 
 		val pageContainerSelector = "div#ch-images"
-		val imageSelector = "img.preload-image"
+		val imageSelector = "img.page-img, img.preload-image"
 
 		val container = doc.selectFirst(pageContainerSelector)
 			?: doc.parseFailed("Page container '$pageContainerSelector' not found on page: $fullUrl")

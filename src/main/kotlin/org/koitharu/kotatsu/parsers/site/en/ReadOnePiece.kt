@@ -29,7 +29,7 @@ internal class ReadOnePiece(context: MangaLoaderContext) :
 
 		return manga.mapNotNull { li ->
 			val a = li.selectFirst("a") ?: return@mapNotNull null
-			val href = a.attrAsRelativeUrlOrNull("href").takeIf { ref -> ref != "/" }
+			val href = a.attrAsRelativeUrlOrNull("href").takeIf { ref -> ref != null && ref != "/" && ref.startsWith("/") }
 				?: return@mapNotNull null
 
 			Manga(

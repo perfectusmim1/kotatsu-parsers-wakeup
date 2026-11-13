@@ -91,12 +91,12 @@ internal class Multporn(context: MangaLoaderContext) :
 							append(
 								when (it) {
 									ContentType.COMICS -> "1"
-                                    ContentType.HENTAI -> "2"
-									else -> "All" // all
+                                    ContentType.HENTAI -> "3"
+									else -> "1"
 								},
 							)
 						}
-					} else append("All")
+					} else append("1")
 
                     
                     filter.locale?.let {

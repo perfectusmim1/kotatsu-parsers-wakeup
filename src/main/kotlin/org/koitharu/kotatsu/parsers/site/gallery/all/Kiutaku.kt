@@ -37,6 +37,12 @@ internal class Kiutaku(context: MangaLoaderContext) :
             }
         }
 
-        return chain.proceed(request)
+        val finalRequest = if (request.url.host == "mitaku.net" || request.url.host.endsWith(".mitaku.net")) {
+            request.newBuilder().removeHeader("Referer").build()
+        } else {
+            request
+        }
+
+        return chain.proceed(finalRequest)
     }
 }

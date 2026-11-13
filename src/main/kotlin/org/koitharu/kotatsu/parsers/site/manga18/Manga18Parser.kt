@@ -203,7 +203,10 @@ internal abstract class Manga18Parser(
 		val fullUrl = chapter.url.toAbsoluteUrl(domain)
 		val doc = webClient.httpGet(fullUrl).parseHtml()
 		val script = doc.selectFirstOrThrow("script:containsData(slides_p_path)")
-		val urlEncoded = script.data().substringAfter('[').substringBefore(",]").replace("\"", "").split(",")
+		val arrayText = script.data().substringAfter('[').substringBefore(']')
+		val urlEncoded = arrayText.split(',').mapNotNull {
+			it.trim().removeSurrounding("\"").takeIf(String::isNotEmpty)
+		}
 		return urlEncoded.map { url ->
 			val img = context.decodeBase64(url).toString(Charsets.UTF_8)
 			MangaPage(

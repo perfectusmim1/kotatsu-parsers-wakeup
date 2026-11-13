@@ -69,7 +69,7 @@ internal class FuryoSociety(context: MangaLoaderContext) :
 				id = generateUid(href),
 				url = href,
 				publicUrl = href.toAbsoluteUrl(div.host ?: domain),
-				coverUrl = div.selectFirst("img")?.src(),
+				coverUrl = div.selectFirst("img")?.src()?.nullIfEmpty(),
 				title = (div.selectFirst("div.media-body") ?: div.selectFirst("a"))?.text().orEmpty(),
 				altTitles = emptySet(),
 				rating = RATING_UNKNOWN,

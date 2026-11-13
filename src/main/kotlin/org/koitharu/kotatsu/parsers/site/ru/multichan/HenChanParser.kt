@@ -12,7 +12,8 @@ import java.util.*
 internal class HenChanParser(context: MangaLoaderContext) : ChanParser(context, MangaParserSource.HENCHAN) {
 
 	override val configKeyDomain = ConfigKey.Domain(
-        "x5.h-chan.me",
+		"x17.h-chan.me",
+		"x5.h-chan.me",
 		"xxxx.henchan.pro",
 		"xxl.hentaichan.live",
 		"xxx.henchan.pro",

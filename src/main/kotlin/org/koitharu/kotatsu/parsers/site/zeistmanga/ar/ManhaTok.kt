@@ -8,5 +8,5 @@ import org.koitharu.kotatsu.parsers.site.zeistmanga.ZeistMangaParser
 @MangaSourceParser("MANHATOK", "ManhaTok", "ar")
 internal class ManhaTok(context: MangaLoaderContext) :
 	ZeistMangaParser(context, MangaParserSource.MANHATOK, "manhatok.blogspot.com") {
-	override val selectPage = "#seoneurons-target img"
+	override val selectPage = "#seoneurons-target img, " + super.selectPage
 }

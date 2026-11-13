@@ -329,6 +329,7 @@ internal abstract class WebtoonsParser(
 
 	private companion object {
 		private const val CANVAS_KEY = "canvas"
+		private val WARNING_IMAGE_REGEX = Regex("""/\d+[a-z]{2}_warning[^/]*\.png""", RegexOption.IGNORE_CASE)
 	}
 
 	private fun extractTitleNoFromUrl(url: String): Long {
@@ -346,8 +347,9 @@ internal abstract class WebtoonsParser(
 
 		fun extractImages(selector: String, attr: String = "data-url"): List<MangaPage> {
 			return doc.select(selector).mapIndexedNotNull { i, element ->
-				val url = element.attr(attr).takeIf { it.isNotBlank() }
-					?: element.attr("src").takeIf { it.contains(staticDomain) }
+				val url = (element.attr(attr).takeIf { it.isNotBlank() }
+					?: element.attr("src").takeIf { it.contains(staticDomain) })
+					?.takeUnless { WARNING_IMAGE_REGEX.containsMatchIn(it) }
 					?: return@mapIndexedNotNull null
 				MangaPage(
 					id = generateUid("${chapter.id}-$i"),

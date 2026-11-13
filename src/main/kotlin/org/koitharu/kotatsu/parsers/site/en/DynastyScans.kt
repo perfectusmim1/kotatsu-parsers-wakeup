@@ -195,10 +195,11 @@ internal class DynastyScans(context: MangaLoaderContext) :
 		val chapterUrl = chapter.url.toAbsoluteUrl(domain)
 		val docs = webClient.httpGet(chapterUrl).parseHtml()
 		val script = docs.selectFirstOrThrow("script:containsData(var pages =)")
-		val json = JSONArray(script.data().substringAfter('=').substringBeforeLast(';'))
+		val json = JSONArray(script.data().substringAfter("var pages =").substringBefore(';').trim())
 		val pages = ArrayList<MangaPage>(json.length())
 		for (i in 0 until json.length()) {
-			val url = "https://" + domain + json.getString(i).substringAfter(":\"").substringBefore("\",")
+			val imgPath = json.getJSONObject(i).getString("image")
+			val url = "https://$domain$imgPath"
 			pages.add(
 				MangaPage(
 					id = generateUid(url),

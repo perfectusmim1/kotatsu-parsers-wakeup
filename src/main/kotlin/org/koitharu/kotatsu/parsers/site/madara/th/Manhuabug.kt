@@ -12,4 +12,5 @@ internal class Manhuabug(context: MangaLoaderContext) :
 	override val datePattern: String = "d MMMM yyyy"
 	override val sourceLocale: Locale = Locale.ENGLISH
 	override val selectPage = "img"
+	override val withoutAjax = true
 }

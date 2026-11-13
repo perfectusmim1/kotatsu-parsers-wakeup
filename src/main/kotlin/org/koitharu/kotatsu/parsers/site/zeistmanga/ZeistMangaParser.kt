@@ -160,13 +160,9 @@ internal abstract class ZeistMangaParser(
 			}
 		}
 
-		val json = webClient.httpGet(url).parseJson().getJSONObject("feed")
-
-		return if (json.toString().contains("\"entry\":")) {
-			parseMangaList(json.getJSONArray("entry"))
-		} else {
-			emptyList()
-		}
+		val json = webClient.httpGet(url).parseJson().optJSONObject("feed") ?: return emptyList()
+		val entries = json.optJSONArray("entry") ?: return emptyList()
+		return parseMangaList(entries)
 	}
 
 	protected open fun parseMangaList(json: JSONArray): List<Manga> {
@@ -175,15 +171,14 @@ internal abstract class ZeistMangaParser(
 			val href =
 				j.getJSONArray("link").asTypedList<JSONObject>().first { it.getString("rel") == "alternate" }
 					.getString("href")
-			val urlImg = if (j.toString().contains("media\$thumbnail")) {
-				j.getJSONObject("media\$thumbnail").getStringOrNull("url")
-					?.replace("""/s.+?-c/""".toRegex(), "/w600/")
-					?.replace("""=s(?!.*=s).+?-c$""".toRegex(), "=w600")
-					?.replace("""/s.+?-c-rw/""".toRegex(), "/w600/")
-					?.replace("""=s(?!.*=s).+?-c-rw$""".toRegex(), "=w600")
-			} else {
-				Jsoup.parse(j.getJSONObject("content").getString("\$t")).selectFirst("img")?.attr("src")
-			}
+			val urlImg = j.optJSONObject("media\$thumbnail")?.getStringOrNull("url")
+				?.replace("""/s.+?-c/""".toRegex(), "/w600/")
+				?.replace("""=s(?!.*=s).+?-c$""".toRegex(), "=w600")
+				?.replace("""/s.+?-c-rw/""".toRegex(), "/w600/")
+				?.replace("""=s(?!.*=s).+?-c-rw$""".toRegex(), "=w600")
+				?: j.optJSONObject("content")?.getStringOrNull("\$t")?.let {
+					Jsoup.parse(it).selectFirst("img")?.attr("src")
+				}
 			Manga(
 				id = generateUid(href),
 				url = href.toRelativeUrl(domain),

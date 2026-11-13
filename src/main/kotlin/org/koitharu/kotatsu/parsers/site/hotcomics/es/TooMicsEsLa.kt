@@ -7,7 +7,7 @@ import org.koitharu.kotatsu.parsers.site.hotcomics.HotComicsParser
 
 @MangaSourceParser("TOOMICSESLA", "TooMicsEsLa", "es")
 internal class TooMicsEsLa(context: MangaLoaderContext) :
-	HotComicsParser(context, MangaParserSource.TOOMICSESLA, "toomics.com/mx") {
+	HotComicsParser(context, MangaParserSource.TOOMICSESLA, "toomics.com/esp") {
 	override val isSearchSupported = false
 	override val mangasUrl = "/webtoon/ranking/genre"
 	override val selectMangas = "li > div.visual"

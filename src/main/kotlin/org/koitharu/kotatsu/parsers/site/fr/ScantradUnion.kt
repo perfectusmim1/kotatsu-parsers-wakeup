@@ -1,5 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.fr
 
+import okhttp3.Interceptor
+import okhttp3.Response
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -22,6 +24,18 @@ internal class ScantradUnion(context: MangaLoaderContext) :
 	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
 		super.onCreateConfig(keys)
 		keys.add(userAgentKey)
+	}
+
+	override fun intercept(chain: Interceptor.Chain): Response {
+		val request = chain.request()
+		if ("/wp-manga/" in request.url.encodedPath) {
+			return chain.proceed(
+				request.newBuilder()
+					.removeHeader("Referer")
+					.build(),
+			)
+		}
+		return chain.proceed(request)
 	}
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(

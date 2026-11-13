@@ -88,7 +88,14 @@ internal class MangaGeko(context: MangaLoaderContext) :
 			}
 		}
 
-		val doc = captureDocument(url)
+		val directDoc = runCatchingCancellable {
+			webClient.httpGet(url).parseHtml()
+		}.getOrNull()
+		val doc = if (directDoc != null && directDoc.select("article.comic-card").isNotEmpty()) {
+			directDoc
+		} else {
+			captureDocument(url)
+		}
 
 		return doc.select("article.comic-card").map { article ->
 			val href = article.selectFirstOrThrow("h3.comic-card__title a").attrAsRelativeUrl("href")

@@ -133,12 +133,13 @@ internal abstract class MangAdventureParser(
 				else -> null
 			},
 			chapters = chapters?.optJSONArray("results")?.asTypedList<JSONObject>()?.mapChapters { _, it ->
+				val chapterId = it.getLong("id")
 				MangaChapter(
-					id = generateUid(it.getLong("id")),
+					id = generateUid(chapterId),
 					title = it.getStringOrNull("full_title"),
 					number = it.getFloatOrDefault("number", 0f),
 					volume = it.getIntOrDefault("volume", 0),
-					url = it.getString("url"),
+					url = "${it.getString("url")}#$chapterId",
 					scanlator = it.getJSONArray("groups").joinToString(),
 					uploadDate = it.getString("published").toLong(),
 					branch = null,
@@ -149,8 +150,9 @@ internal abstract class MangAdventureParser(
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
+		val chapterId = chapter.url.substringAfterLast('#', "").ifEmpty { chapter.id.toString() }
 		val url = apiUrl.addEncodedPathSegment("chapters")
-			.addEncodedPathSegment(chapter.id.toString())
+			.addEncodedPathSegment(chapterId)
 			.addEncodedPathSegment("pages")
 			.addEncodedQueryParameter("track", "true")
 		return url.get()?.optJSONArray("results")?.mapJSON {

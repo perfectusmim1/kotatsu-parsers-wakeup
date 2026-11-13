@@ -8,7 +8,7 @@ import org.koitharu.kotatsu.parsers.site.mangareader.MangaReaderParser
 
 @MangaSourceParser("INUMANGA", "InuManga", "th")
 internal class InuManga(context: MangaLoaderContext) :
-	MangaReaderParser(context, MangaParserSource.INUMANGA, "www.inu-manga.com", pageSize = 40, searchPageSize = 10) {
+	MangaReaderParser(context, MangaParserSource.INUMANGA, "www.inu-manga.net", pageSize = 40, searchPageSize = 10) {
 	override val filterCapabilities: MangaListFilterCapabilities
 		get() = super.filterCapabilities.copy(
 			isTagsExclusionSupported = false,

@@ -160,6 +160,7 @@ internal abstract class MangaBallParser(
 			addQueryParameter("page", page.toString())
 			addQueryParameter("limit", PAGE_SIZE.toString())
 			addQueryParameter("adult_mode", if (config[showSuspiciousContentKey]) "all" else "no_18")
+			addQueryParameter("translated_languages", siteLanguages.joinToString(","))
 			query.nullIfEmpty()?.let { addQueryParameter("keyword", it) }
 			if (filter.tags.isNotEmpty()) {
 				addQueryParameter("included_tags", filter.tags.joinToString(",") { it.key })

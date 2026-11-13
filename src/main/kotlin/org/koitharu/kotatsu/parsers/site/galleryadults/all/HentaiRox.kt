@@ -15,11 +15,17 @@ import java.util.*
 @MangaSourceParser("HENTAIROX", "HentaiRox", type = ContentType.HENTAI)
 internal class HentaiRox(context: MangaLoaderContext) :
 	GalleryAdultsParser(context, MangaParserSource.HENTAIROX, "hentairox.com") {
-	override val selectGalleryImg = ".inner_thumb img"
+	override val selectGallery = "article.hr-home-card"
+	override val selectGalleryLink = "a.hr-home-card__cover"
+	override val selectGalleryImg = "a.hr-home-card__cover img"
+	override val selectGalleryTitle = ".hr-home-card__title a"
 	override val selectTags = ".gtags"
-	override val selectTag = "li:contains(Tags:)"
-	override val selectAuthor = "li:contains(Artists:) span.item_name"
-	override val selectLanguageChapter = "li:contains(Languages:) .item_name"
+	override val selectTag = ".hr-gallery-entity-group:contains(Tags:) .hr-gallery-entity-items"
+	override val selectAuthor = ".hr-gallery-entity-group:contains(Artists:) .hr-gallery-tag__name"
+	override val selectLanguageChapter = ".hr-gallery-entity-group:contains(Languages:) .hr-gallery-tag__name"
+	override val selectUrlChapter = "a.hr-gallery-read, .hr-gallery-cover a"
+	override val selectTotalPage = "[data-total-label]"
+	override val idImg = "readerImg"
 
 	override suspend fun getFilterOptions(): MangaListFilterOptions {
 		return super.getFilterOptions().copy(
@@ -35,9 +41,9 @@ internal class HentaiRox(context: MangaLoaderContext) :
 		)
 	}
 
-	override fun Element.parseTags() = select("a.tag, .gallery_title a").mapToSet {
+	override fun Element.parseTags() = select("a.tag, a.hr-gallery-tag, .gallery_title a").mapToSet {
 		val key = it.attr("href").removeSuffix('/').substringAfterLast('/')
-		val name = it.selectFirst(".item_name")?.text() ?: it.text()
+		val name = it.selectFirst(".item_name, .hr-gallery-tag__name")?.text() ?: it.text()
 		MangaTag(
 			key = key,
 			title = name,

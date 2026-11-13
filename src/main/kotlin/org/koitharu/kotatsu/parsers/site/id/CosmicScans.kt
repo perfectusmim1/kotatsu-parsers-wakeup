@@ -27,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap
 internal class CosmicScans(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.COSMIC_SCANS, pageSize = 24) {
 
-	override val configKeyDomain = ConfigKey.Domain("02.cosmicscans.to", "01.cosmicscans.to")
+	override val configKeyDomain = ConfigKey.Domain("04.cosmicscans.to", "02.cosmicscans.to", "01.cosmicscans.to")
 
 	private val apiUrl = "https://cdncid.csmcscns.id/v1/manga"
 
@@ -240,15 +240,19 @@ internal class CosmicScans(context: MangaLoaderContext) :
 		if (data.getStringOrNull("redirect_link") != null) {
 			return emptyList()
 		}
-		// Each entry is a small HTML snippet wrapping a single <img>.
+		// Each entry can be either a direct image URL or a small HTML snippet wrapping an <img>.
 		val pages = data.optJSONArray("chapters") ?: return emptyList()
 		return (0 until pages.length()).mapNotNull { i ->
-			val html = pages.optString(i).nullIfEmpty() ?: return@mapNotNull null
-			val url = Jsoup.parseBodyFragment(html).selectFirst("img")
-				?.attr("src")
-				?.trim()
-				?.nullIfEmpty()
-				?: return@mapNotNull null
+			val entry = pages.optString(i).trim().nullIfEmpty() ?: return@mapNotNull null
+			val url = if (entry.startsWith("http://") || entry.startsWith("https://")) {
+				entry
+			} else {
+				Jsoup.parseBodyFragment(entry).selectFirst("img")
+					?.attr("src")
+					?.trim()
+					?.nullIfEmpty()
+					?: return@mapNotNull null
+			}
 			MangaPage(
 				id = generateUid(url),
 				url = url,
