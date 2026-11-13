@@ -1,13 +1,26 @@
 package org.koitharu.kotatsu.parsers.site.mangareader.tr
 
 import okhttp3.HttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
+import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.exception.AuthRequiredException
 import org.koitharu.kotatsu.parsers.exception.ParseException
 import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.model.community.SourceComment
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentEngine
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentPage
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentSort
+import org.koitharu.kotatsu.parsers.model.community.SourceCommunityCapabilities
+import org.koitharu.kotatsu.parsers.model.community.SourceMangaCommunityInfo
+import org.koitharu.kotatsu.parsers.site.community.parseIsoTimestamp
 import org.koitharu.kotatsu.parsers.util.*
 import org.koitharu.kotatsu.parsers.util.json.*
 import java.text.SimpleDateFormat
@@ -15,9 +28,59 @@ import java.util.*
 
 @MangaSourceParser("GOLGEBAHCESI", "GolgeBahcesi", "tr")
 internal class Golgebahcesi(context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.GOLGEBAHCESI, pageSize = 20) {
+	PagedMangaParser(context, MangaParserSource.GOLGEBAHCESI, pageSize = 20),
+	MangaParserAuthProvider,
+	MangaSourceCommunityProvider {
 
 	override val configKeyDomain = ConfigKey.Domain("golgebahcesi.com")
+
+	override val authUrl: String
+		get() = "https://$domain/login"
+
+	override val signUpUrl: String
+		get() = "https://$domain/register"
+
+	override suspend fun isAuthorized(): Boolean {
+		return fetchCurrentUser() != null
+	}
+
+	override suspend fun getUsername(): String {
+		val user = fetchCurrentUser() ?: throw AuthRequiredException(source)
+		return user.getStringOrNull("displayName")?.nullIfEmpty()
+			?: user.getStringOrNull("username")?.nullIfEmpty()
+			?: throw AuthRequiredException(source)
+	}
+
+	override suspend fun logout() {
+		runCatching {
+			val url = apiUrlBuilder().addPathSegment("auth").addPathSegment("logout").build()
+			executeApiRequest("POST", url, JSONObject())
+		}
+		context.clearAuthValues(source)
+	}
+
+	override val capabilities: SourceCommunityCapabilities = SourceCommunityCapabilities(
+		supportsStats = true,
+		supportsRating = true,
+		maxRatingScale = 10,
+		supportsNativeComments = true,
+		supportsCommentPosting = true,
+		supportsReplies = true,
+		supportsCommentLikes = true,
+		supportsCommentDislikes = true,
+		supportsCommentEditing = true,
+		supportsCommentDeleting = true,
+		supportsChapterComments = true,
+		commentEngine = SourceCommentEngine.NATIVE,
+		supportsWidgetFallback = false,
+		requiresAuthForRating = true,
+		requiresAuthForComment = true,
+		supportedSorts = setOf(
+			SourceCommentSort.NEWEST,
+			SourceCommentSort.OLDEST,
+			SourceCommentSort.TOP,
+		),
+	)
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(
 		SortOrder.UPDATED,
@@ -227,6 +290,489 @@ internal class Golgebahcesi(context: MangaLoaderContext) :
 	}
 
 	override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
+
+	override suspend fun getMangaCommunityInfo(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceMangaCommunityInfo {
+		val seriesSlug = extractSeriesSlug(manga)
+		val detailUrl = apiUrlBuilder().addPathSegment("series").addPathSegment(seriesSlug).build()
+		val detail = webClient.httpGet(detailUrl).parseJson()
+		val seriesId = detail.getStringOrNull("id")?.nullIfEmpty()
+			?: throw ParseException("Series id missing", detailUrl.toString())
+
+		val targetType = if (chapter != null) "CHAPTER" else "SERIES"
+		val targetId = if (chapter != null) {
+			resolveChapterId(chapter) ?: seriesId
+		} else {
+			seriesId
+		}
+
+		val commentsMeta = runCatching {
+			val commentsUrl = apiUrlBuilder()
+				.addPathSegment("comments")
+				.addQueryParameter("targetId", targetId)
+				.addQueryParameter("targetType", targetType)
+				.addQueryParameter("page", "1")
+				.build()
+			val json = webClient.httpGet(commentsUrl).parseJson()
+			val meta = json.optJSONObject("meta")
+			val pagination = json.optJSONObject("pagination")
+			meta?.opt("total")?.toString()?.toIntOrNull()
+				?: pagination?.opt("totalItems")?.toString()?.toIntOrNull()
+		}.getOrNull()
+
+		val currentUser = fetchCurrentUser()
+		val currentUsername = currentUser?.let {
+			it.getStringOrNull("displayName")?.nullIfEmpty() ?: it.getStringOrNull("username")?.nullIfEmpty()
+		}
+		val userRating = if (currentUser != null) {
+			runCatching {
+				val myRatingUrl = apiUrlBuilder()
+					.addPathSegment("series")
+					.addPathSegment(seriesId)
+					.addPathSegment("my-rating")
+					.build()
+				val myJson = webClient.httpGet(myRatingUrl).parseJson()
+				(myJson.opt("userRating") ?: myJson.opt("rating"))?.toString()?.toIntOrNull()
+			}.getOrNull()
+		} else {
+			null
+		}
+
+		val rawRating = detail.getDoubleOrDefault("rating", -1.0)
+			.takeIf { it in 0.0..10.0 }
+			?.toFloat()
+		val ratingCount = detail.opt("ratingCount")?.toString()?.toIntOrNull()
+		val viewCount = detail.opt("viewCount")?.toString()?.toLongOrNull()
+		val followCount = detail.opt("followerCount")?.toString()?.toLongOrNull()
+
+		return SourceMangaCommunityInfo(
+			averageRating = rawRating?.let { (it / 10f).coerceIn(0f, 1f) },
+			rawRating = rawRating,
+			rawScale = 10,
+			userRating = userRating,
+			ratingCount = ratingCount,
+			viewCount = viewCount,
+			followCount = followCount,
+			commentCount = if (chapter == null) commentsMeta else null,
+			chapterCommentCount = if (chapter != null) commentsMeta else null,
+			canCurrentUserRate = currentUser != null,
+			canCurrentUserComment = currentUser != null,
+			currentUsername = currentUsername,
+		)
+	}
+
+	override suspend fun submitRating(
+		manga: Manga,
+		score: Int,
+		chapter: MangaChapter?,
+	): SourceMangaCommunityInfo {
+		val seriesSlug = extractSeriesSlug(manga)
+		val detailUrl = apiUrlBuilder().addPathSegment("series").addPathSegment(seriesSlug).build()
+		val detail = webClient.httpGet(detailUrl).parseJson()
+		val seriesId = detail.getStringOrNull("id")?.nullIfEmpty()
+			?: throw ParseException("Series id missing", detailUrl.toString())
+
+		val clamped = score.coerceIn(1, 10)
+		val rateUrl = apiUrlBuilder()
+			.addPathSegment("series")
+			.addPathSegment(seriesId)
+			.addPathSegment("rate")
+			.build()
+		val payload = JSONObject().apply { put("rating", clamped) }
+		val res = executeApiRequest("POST", rateUrl, payload)
+		val userRating = res.opt("userRating")?.toString()?.toIntOrNull() ?: clamped
+		val newRating = res.opt("newRating")?.toString()?.toFloatOrNull()
+		val ratingCount = res.opt("ratingCount")?.toString()?.toIntOrNull()
+		val existingInfo = runCatching { getMangaCommunityInfo(manga, chapter) }.getOrNull()
+		return (existingInfo ?: SourceMangaCommunityInfo(rawScale = 10)).copy(
+			averageRating = (newRating ?: existingInfo?.rawRating)?.let { (it / 10f).coerceIn(0f, 1f) },
+			rawRating = newRating ?: existingInfo?.rawRating,
+			rawScale = 10,
+			userRating = userRating,
+			ratingCount = ratingCount ?: existingInfo?.ratingCount,
+			canCurrentUserRate = true,
+		)
+	}
+
+	override suspend fun getComments(
+		manga: Manga,
+		chapter: MangaChapter?,
+		page: Int,
+		sort: SourceCommentSort,
+		cursor: String?,
+	): SourceCommentPage {
+		val (targetId, targetType) = resolveCommentTarget(manga, chapter)
+		val sortParam = when (sort) {
+			SourceCommentSort.OLDEST -> "oldest"
+			SourceCommentSort.TOP -> "popular"
+			SourceCommentSort.NEWEST -> "newest"
+		}
+		val url = apiUrlBuilder()
+			.addPathSegment("comments")
+			.addQueryParameter("targetId", targetId)
+			.addQueryParameter("targetType", targetType)
+			.addQueryParameter("page", page.coerceAtLeast(1).toString())
+			.addQueryParameter("sort", sortParam)
+			.build()
+		val json = executeApiRequest("GET", url, null, throwOnAuthError = false)
+		val currentUser = fetchCurrentUser()
+		val currentUserId = currentUser?.getStringOrNull("id") ?: currentUser?.getStringOrNull("_id")
+		val currentUsername = currentUser?.getStringOrNull("username")
+
+		val data = json.optJSONArray("data")
+		val comments = ArrayList<SourceComment>(data?.length() ?: 0)
+		if (data != null) {
+			for (i in 0 until data.length()) {
+				val jo = data.optJSONObject(i) ?: continue
+				comments.add(parseApiComment(jo, currentUserId, currentUsername))
+			}
+		}
+
+		val meta = json.optJSONObject("meta")
+		val pagination = json.optJSONObject("pagination")
+		val currentPage = meta?.opt("page")?.toString()?.toIntOrNull()
+			?: pagination?.opt("currentPage")?.toString()?.toIntOrNull()
+			?: page
+		val total = meta?.opt("total")?.toString()?.toIntOrNull()
+			?: pagination?.opt("totalItems")?.toString()?.toIntOrNull()
+		val totalPages = pagination?.opt("totalPages")?.toString()?.toIntOrNull()
+		val hasMore = meta?.getBooleanOrDefault("hasMore", false)
+			?: totalPages?.let { currentPage < it }
+			?: false
+
+		return SourceCommentPage(
+			comments = comments,
+			page = currentPage,
+			hasNextPage = hasMore,
+			totalCount = total,
+			engine = SourceCommentEngine.NATIVE,
+		)
+	}
+
+	override suspend fun getReplies(
+		manga: Manga,
+		comment: SourceComment,
+		chapter: MangaChapter?,
+		page: Int,
+		cursor: String?,
+	): SourceCommentPage {
+		val (targetId, targetType) = resolveCommentTarget(manga, chapter)
+		val url = apiUrlBuilder()
+			.addPathSegment("comments")
+			.addQueryParameter("targetId", targetId)
+			.addQueryParameter("targetType", targetType)
+			.addQueryParameter("parentId", comment.id)
+			.addQueryParameter("page", page.coerceAtLeast(1).toString())
+			.build()
+		val json = runCatching { executeApiRequest("GET", url, null, throwOnAuthError = false) }.getOrNull()
+		val currentUser = fetchCurrentUser()
+		val currentUserId = currentUser?.getStringOrNull("id") ?: currentUser?.getStringOrNull("_id")
+		val currentUsername = currentUser?.getStringOrNull("username")
+
+		val data = json?.optJSONArray("data")
+		val parsed = ArrayList<SourceComment>(data?.length() ?: 0)
+		if (data != null) {
+			for (i in 0 until data.length()) {
+				val jo = data.optJSONObject(i) ?: continue
+				parsed.add(parseApiComment(jo, currentUserId, currentUsername))
+			}
+		}
+		if (parsed.isEmpty() && comment.replies.isNotEmpty()) {
+			return SourceCommentPage(
+				comments = comment.replies,
+				page = page,
+				hasNextPage = false,
+				engine = SourceCommentEngine.NATIVE,
+			)
+		}
+		val meta = json?.optJSONObject("meta")
+		val pagination = json?.optJSONObject("pagination")
+		val totalPages = pagination?.opt("totalPages")?.toString()?.toIntOrNull()
+		val hasMore = meta?.getBooleanOrDefault("hasMore", false)
+			?: totalPages?.let { page < it }
+			?: false
+		return SourceCommentPage(
+			comments = parsed,
+			page = page,
+			hasNextPage = hasMore,
+			totalCount = meta?.opt("total")?.toString()?.toIntOrNull(),
+			engine = SourceCommentEngine.NATIVE,
+		)
+	}
+
+	override suspend fun postComment(
+		manga: Manga,
+		text: String,
+		chapter: MangaChapter?,
+		parentComment: SourceComment?,
+		isSpoiler: Boolean,
+	): SourceComment {
+		val (targetId, targetType) = resolveCommentTarget(manga, chapter)
+		val url = apiUrlBuilder().addPathSegment("comments").build()
+		val payload = JSONObject().apply {
+			put("targetId", targetId)
+			put("targetType", targetType)
+			put("content", text)
+			put("contentType", "text")
+			if (isSpoiler) put("spoiler", true)
+			parentComment?.id?.let { put("parentId", it) }
+		}
+		val res = executeApiRequest("POST", url, payload)
+		val obj = res.optJSONObject("data") ?: res.optJSONObject("comment") ?: res
+		val currentUser = fetchCurrentUser()
+		val currentUserId = currentUser?.getStringOrNull("id") ?: currentUser?.getStringOrNull("_id")
+		val currentUsername = currentUser?.getStringOrNull("username")
+		if (obj.has("id") || obj.has("_id")) {
+			return parseApiComment(obj, currentUserId, currentUsername)
+		}
+		return SourceComment(
+			id = res.opt("id")?.toString()?.nullIfEmpty() ?: "gb-${System.currentTimeMillis()}",
+			authorName = currentUser?.getStringOrNull("displayName") ?: currentUsername ?: "You",
+			body = text,
+			createdAtEpochMs = System.currentTimeMillis(),
+			isSpoiler = isSpoiler,
+			parentId = parentComment?.id,
+			isOwnComment = true,
+			canReply = true,
+			canLike = true,
+			canDislike = true,
+			canEdit = true,
+			canDelete = true,
+		)
+	}
+
+	override suspend fun editComment(
+		manga: Manga,
+		comment: SourceComment,
+		newText: String,
+		chapter: MangaChapter?,
+	): SourceComment {
+		val url = apiUrlBuilder().addPathSegment("comments").addPathSegment(comment.id).build()
+		val payload = JSONObject().apply { put("content", newText) }
+		val res = executeApiRequest("PATCH", url, payload)
+		val obj = res.optJSONObject("data") ?: res.optJSONObject("comment") ?: res
+		val updatedBody = obj.getStringOrNull("content")?.nullIfEmpty() ?: newText
+		return comment.copy(
+			body = updatedBody,
+			isEdited = true,
+		)
+	}
+
+	override suspend fun deleteComment(
+		manga: Manga,
+		comment: SourceComment,
+		chapter: MangaChapter?,
+	) {
+		val url = apiUrlBuilder().addPathSegment("comments").addPathSegment(comment.id).build()
+		executeApiRequest("DELETE", url, null)
+	}
+
+	override suspend fun toggleCommentLike(
+		manga: Manga,
+		comment: SourceComment,
+		isLike: Boolean,
+		chapter: MangaChapter?,
+	): SourceComment {
+		val url = apiUrlBuilder()
+			.addPathSegment("comments")
+			.addPathSegment(comment.id)
+			.addPathSegment("vote")
+			.build()
+		val payload = JSONObject().apply { put("voteType", if (isLike) "like" else "dislike") }
+		val res = executeApiRequest("POST", url, payload)
+		val reactions = res.optJSONObject("reactionCounts")
+		val likes = reactions?.opt("like")?.toString()?.toIntOrNull()
+			?: res.opt("likes")?.toString()?.toIntOrNull()
+			?: res.opt("likesCount")?.toString()?.toIntOrNull()
+			?: (comment.likesCount + if (isLike) (if (comment.userVote == 1) -1 else 1) else if (comment.userVote == 1) -1 else 0).coerceAtLeast(0)
+		val dislikes = reactions?.opt("dislike")?.toString()?.toIntOrNull()
+			?: res.opt("dislikes")?.toString()?.toIntOrNull()
+			?: res.opt("dislikesCount")?.toString()?.toIntOrNull()
+			?: (comment.dislikesCount + if (!isLike) (if (comment.userVote == -1) -1 else 1) else if (comment.userVote == -1) -1 else 0).coerceAtLeast(0)
+		val newVote = when {
+			res.has("isLiked") || res.has("isDisliked") -> when {
+				res.getBooleanOrDefault("isLiked", false) -> 1
+				res.getBooleanOrDefault("isDisliked", false) -> -1
+				else -> 0
+			}
+			else -> if (isLike) {
+				if (comment.userVote == 1) 0 else 1
+			} else {
+				if (comment.userVote == -1) 0 else -1
+			}
+		}
+		return comment.copy(
+			likesCount = likes,
+			dislikesCount = dislikes,
+			userVote = newVote,
+		)
+	}
+
+	private fun extractSeriesSlug(manga: Manga): String {
+		return manga.url.trimEnd('/').substringAfterLast('/').nullIfEmpty() ?: slugify(manga.title)
+	}
+
+	private suspend fun resolveChapterId(chapter: MangaChapter): String? {
+		val segments = chapter.url.trim('/').split('/')
+		val seriesSlug = segments.getOrNull(1) ?: return null
+		val chapterSlug = segments.getOrNull(3) ?: return null
+		return runCatching {
+			val chUrl = apiUrlBuilder()
+				.addPathSegment("chapters")
+				.addPathSegment(seriesSlug)
+				.addPathSegment(chapterSlug)
+				.build()
+			webClient.httpGet(chUrl).parseJson().getStringOrNull("id")?.nullIfEmpty()
+		}.getOrNull()
+	}
+
+	private suspend fun resolveCommentTarget(manga: Manga, chapter: MangaChapter?): Pair<String, String> {
+		if (chapter != null) {
+			resolveChapterId(chapter)?.let { return it to "CHAPTER" }
+		}
+		val seriesSlug = extractSeriesSlug(manga)
+		val detailUrl = apiUrlBuilder().addPathSegment("series").addPathSegment(seriesSlug).build()
+		val detail = webClient.httpGet(detailUrl).parseJson()
+		val seriesId = detail.getStringOrNull("id")?.nullIfEmpty()
+			?: throw ParseException("Series id missing", detailUrl.toString())
+		return seriesId to "SERIES"
+	}
+
+	private suspend fun fetchCurrentUser(): JSONObject? {
+		return runCatching {
+			val meUrl = apiUrlBuilder().addPathSegment("auth").addPathSegment("me").build()
+			val req = Request.Builder()
+				.get()
+				.url(meUrl)
+				.headers(getRequestHeaders())
+				.header("Accept", "application/json")
+				.header("Origin", "https://$domain")
+				.header("Referer", "https://$domain/")
+				.tag(MangaSource::class.java, source)
+				.build()
+			context.httpClient.newCall(req).await().use { response ->
+				if (!response.isSuccessful) return@use null
+				val json = response.body.string().toJSONObjectOrNull() ?: return@use null
+				val user = json.optJSONObject("user") ?: json
+				val hasIdentity = !user.getStringOrNull("id").isNullOrBlank() ||
+					!user.getStringOrNull("_id").isNullOrBlank() ||
+					!user.getStringOrNull("username").isNullOrBlank()
+				if (hasIdentity) user else null
+			}
+		}.getOrNull()
+	}
+
+	private suspend fun executeApiRequest(
+		method: String,
+		url: HttpUrl,
+		payload: JSONObject?,
+		throwOnAuthError: Boolean = true,
+	): JSONObject {
+		val reqBuilder = Request.Builder()
+			.url(url)
+			.headers(getRequestHeaders())
+			.header("Accept", "application/json")
+			.header("Origin", "https://$domain")
+			.header("Referer", "https://$domain/")
+			.tag(MangaSource::class.java, source)
+
+		val mediaType = "application/json; charset=utf-8".toMediaType()
+		when (method.uppercase(Locale.ROOT)) {
+			"GET" -> reqBuilder.get()
+			"DELETE" -> reqBuilder.delete(payload?.toString()?.toRequestBody(mediaType))
+			"PATCH" -> reqBuilder.patch((payload ?: JSONObject()).toString().toRequestBody(mediaType))
+			else -> reqBuilder.post((payload ?: JSONObject()).toString().toRequestBody(mediaType))
+		}
+
+		return context.httpClient.newCall(reqBuilder.build()).await().use { response ->
+			if (throwOnAuthError && (response.code == 401 || response.code == 403)) {
+				throw AuthRequiredException(source)
+			}
+			val raw = response.body.string()
+			val parsed = raw.toJSONObjectOrNull()
+			if (!response.isSuccessful) {
+				val errMsg = parsed?.getStringOrNull("error")
+					?: parsed?.getStringOrNull("message")
+					?: "HTTP ${response.code}"
+				throw ParseException(errMsg, url.toString())
+			}
+			parsed ?: JSONObject()
+		}
+	}
+
+	private fun parseApiComment(
+		jo: JSONObject,
+		currentUserId: String?,
+		currentUsername: String?,
+	): SourceComment {
+		val id = jo.getStringOrNull("id")?.nullIfEmpty() ?: jo.getStringOrNull("_id") ?: "0"
+		val userId = jo.getStringOrNull("userId")?.nullIfEmpty()
+		val parentId = jo.getStringOrNull("parentId")?.nullIfEmpty()
+		val snapshot = jo.optJSONObject("userSnapshot")
+		val username = snapshot?.getStringOrNull("username")?.nullIfEmpty()
+		val authorName = snapshot?.getStringOrNull("displayName")?.nullIfEmpty()
+			?: username
+			?: "Anonim"
+		val avatarUrl = snapshot?.getStringOrNull("avatar")?.nullIfEmpty()
+		val authorRole = snapshot?.getStringOrNull("role")?.nullIfEmpty()
+		val contentType = jo.getStringOrNull("contentType")
+		val rawContent = jo.getStringOrNull("content").orEmpty()
+		val bodyHtml = if (contentType == "sticker" && rawContent.startsWith("http")) {
+			"<img src=\"$rawContent\" alt=\"sticker\"/>"
+		} else {
+			null
+		}
+		val isSpoiler = jo.getBooleanOrDefault("spoiler", false)
+		val isEdited = jo.getBooleanOrDefault("isEdited", false)
+		val reactions = jo.optJSONObject("reactionCounts")
+		val likes = reactions?.opt("like")?.toString()?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+		val dislikes = reactions?.opt("dislike")?.toString()?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+		val userVote = when {
+			jo.getBooleanOrDefault("isLiked", false) -> 1
+			jo.getBooleanOrDefault("isDisliked", false) -> -1
+			else -> 0
+		}
+		val repliesArr = jo.optJSONArray("replies")
+		val replies = ArrayList<SourceComment>(repliesArr?.length() ?: 0)
+		if (repliesArr != null) {
+			for (i in 0 until repliesArr.length()) {
+				val rObj = repliesArr.optJSONObject(i) ?: continue
+				replies.add(parseApiComment(rObj, currentUserId, currentUsername))
+			}
+		}
+		val repliesCount = maxOf(jo.opt("replyCount")?.toString()?.toIntOrNull() ?: 0, replies.size)
+		val createdAt = jo.getStringOrNull("createdAt")
+		val isOwn = (currentUserId != null && userId == currentUserId) ||
+			(currentUsername != null && username != null && username.equals(currentUsername, ignoreCase = true))
+		val isLoggedIn = currentUserId != null || currentUsername != null
+
+		return SourceComment(
+			id = id,
+			authorName = authorName,
+			authorAvatarUrl = avatarUrl,
+			authorRole = authorRole,
+			body = rawContent,
+			bodyHtml = bodyHtml,
+			createdAtEpochMs = parseIsoTimestamp(createdAt),
+			createdAtText = createdAt,
+			isEdited = isEdited,
+			isSpoiler = isSpoiler,
+			likesCount = likes,
+			dislikesCount = dislikes,
+			userVote = userVote,
+			repliesCount = repliesCount,
+			parentId = parentId,
+			replies = replies,
+			isOwnComment = isOwn,
+			canReply = isLoggedIn,
+			canLike = isLoggedIn,
+			canDislike = isLoggedIn,
+			canEdit = isOwn,
+			canDelete = isOwn,
+		)
+	}
 
 	private suspend fun fetchAvailableTags(): Set<MangaTag> {
 		cachedTags?.let { return it }

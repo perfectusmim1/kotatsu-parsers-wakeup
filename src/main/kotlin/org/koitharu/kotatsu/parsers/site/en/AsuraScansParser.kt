@@ -376,8 +376,21 @@ internal class AsuraScansParser(context: MangaLoaderContext) :
 			}
 		}
 
-		val totalComments = if (seriesId != null) {
-			runCatching {
+		val chapterId = if (chapter != null && seriesObj != null) {
+			resolveChapterId(seriesObj, chapter)
+		} else {
+			null
+		}
+		val commentCount = when {
+			chapter != null && chapterId != null -> runCatching {
+				val apiHost = getDomain("api")
+				webClient.httpGet("https://$apiHost/api/chapters/$chapterId/comments?sort=newest&page=1")
+					.parseJson()
+					.optJSONObject("meta")
+					?.getIntOrDefault("total", -1)
+					?.takeIf { it >= 0 }
+			}.getOrNull()
+			chapter == null && seriesId != null -> runCatching {
 				val apiHost = getDomain("api")
 				webClient.httpGet("https://$apiHost/api/series/$seriesId/comments?sort=newest&page=1")
 					.parseJson()
@@ -385,8 +398,7 @@ internal class AsuraScansParser(context: MangaLoaderContext) :
 					?.getIntOrDefault("total", -1)
 					?.takeIf { it >= 0 }
 			}.getOrNull()
-		} else {
-			null
+			else -> null
 		}
 
 		return SourceMangaCommunityInfo(
@@ -395,7 +407,7 @@ internal class AsuraScansParser(context: MangaLoaderContext) :
 			rawScale = 10,
 			viewCount = viewCount,
 			followCount = followCount,
-			commentCount = if (chapter == null) totalComments else null,
+			commentCount = commentCount,
 		)
 	}
 
@@ -533,18 +545,31 @@ internal class AsuraScansParser(context: MangaLoaderContext) :
 		return doc.selectFirst("[data-series-id]")?.attrOrNull("data-series-id")?.toLongOrNull()
 	}
 
-	private fun resolveChapterId(seriesObj: JSONObject, chapter: MangaChapter): Long? {
-		val arr = seriesObj.optJSONArray("latest_chapters") ?: return null
+	private suspend fun resolveChapterId(seriesObj: JSONObject, chapter: MangaChapter): Long? {
 		val chapSlug = chapter.url.trimEnd('/').substringAfterLast('/')
-		for (i in 0 until arr.length()) {
-			val cjo = arr.optJSONObject(i) ?: continue
-			val slug = cjo.getStringOrNull("slug")
-			val num = cjo.getFloatOrDefault("number", -1f)
-			if ((slug != null && slug == chapSlug) || (num >= 0f && num == chapter.number)) {
-				return cjo.getLongOrDefault("id", 0L).takeIf { it > 0L }
+		fun findMatch(arr: JSONArray?): Long? {
+			if (arr == null) return null
+			for (i in 0 until arr.length()) {
+				val cjo = arr.optJSONObject(i) ?: continue
+				val slug = cjo.getStringOrNull("slug")
+				val num = cjo.getFloatOrDefault("number", -1f)
+				if ((slug != null && slug == chapSlug) || (num >= 0f && num == chapter.number)) {
+					return cjo.getLongOrDefault("id", 0L).takeIf { it > 0L }
+				}
 			}
+			return null
 		}
-		return null
+
+		findMatch(seriesObj.optJSONArray("latest_chapters"))?.let { return it }
+
+		val seriesSlug = seriesObj.getStringOrNull("slug") ?: return null
+		val apiHost = getDomain("api")
+		val allChapters = runCatching {
+			webClient.httpGet("https://$apiHost/api/series/$seriesSlug/chapters")
+				.parseJson()
+				.optJSONArray("data")
+		}.getOrNull()
+		return findMatch(allChapters)
 	}
 
 	private fun parseAsuraComment(jo: JSONObject, parentId: String? = null): SourceComment? {

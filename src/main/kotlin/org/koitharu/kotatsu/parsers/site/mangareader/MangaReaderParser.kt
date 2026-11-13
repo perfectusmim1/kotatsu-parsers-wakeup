@@ -25,6 +25,7 @@ import org.koitharu.kotatsu.parsers.site.community.CusdisDetector
 import org.koitharu.kotatsu.parsers.site.community.DisqusDetector
 import org.koitharu.kotatsu.parsers.site.community.GraphCommentDetector
 import org.koitharu.kotatsu.parsers.site.community.HyvorTalkDetector
+import org.koitharu.kotatsu.parsers.site.community.MerlinCommentsHelper
 import org.koitharu.kotatsu.parsers.site.community.WidgetDetectors
 import org.koitharu.kotatsu.parsers.site.community.WordPressCommentsHelper
 import org.koitharu.kotatsu.parsers.site.community.WpDiscuzCommunityHelper
@@ -431,6 +432,16 @@ internal abstract class MangaReaderParser(
 		)
 	}
 
+	private val merlinHelper: MerlinCommentsHelper by lazy {
+		MerlinCommentsHelper(
+			context = context,
+			source = source,
+			domainProvider = { domain },
+			requestHeadersProvider = ::getRequestHeaders,
+			localeProvider = { sourceLocale },
+		)
+	}
+
 	override val capabilities: SourceCommunityCapabilities = SourceCommunityCapabilities(
 		supportsStats = true,
 		supportsRating = false,
@@ -508,8 +519,8 @@ internal abstract class MangaReaderParser(
 			}
 		}
 
-		val commentCount = doc.selectFirst("#wpdcom .wpd-thread-info[data-comments-count]")
-			?.attrOrNull("data-comments-count")?.toIntOrNull()
+		val commentCount = doc.selectFirst("#mcp-total-count, #wpdcom .wpd-thread-info[data-comments-count]")
+			?.let { el -> (el.attrOrNull("data-comments-count") ?: el.textOrNull())?.let { parseCompactCount(it)?.toInt() } }
 			?: doc.selectFirst(".comments-area .comments-title, .comment-count")
 				?.textOrNull()?.let { parseCompactCount(it)?.toInt() }
 
@@ -538,6 +549,12 @@ internal abstract class MangaReaderParser(
 		val pageUrl = resolveCommunityPageUrl(manga, chapter)
 		val doc = webClient.httpGet(pageUrl).parseHtml()
 		return when (val engine = detectCommunityCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.NATIVE -> merlinHelper.getComments(
+				doc = doc,
+				pageUrl = pageUrl,
+				page = page,
+				sort = sort,
+			)
 			SourceCommentEngine.WPDISCUZ -> wpDiscuzHelper.getComments(
 				doc = doc,
 				pageUrl = pageUrl,
@@ -581,6 +598,13 @@ internal abstract class MangaReaderParser(
 		val pageUrl = resolveCommunityPageUrl(manga, chapter)
 		val doc = webClient.httpGet(pageUrl).parseHtml()
 		return when (detectCommunityCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.NATIVE -> merlinHelper.postComment(
+				doc = doc,
+				pageUrl = pageUrl,
+				text = text,
+				parentComment = parentComment,
+				isSpoiler = isSpoiler,
+			)
 			SourceCommentEngine.WPDISCUZ -> wpDiscuzHelper.postComment(
 				doc = doc,
 				pageUrl = pageUrl,
@@ -607,6 +631,7 @@ internal abstract class MangaReaderParser(
 		val pageUrl = resolveCommunityPageUrl(manga, chapter)
 		val doc = webClient.httpGet(pageUrl).parseHtml()
 		return when (detectCommunityCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.NATIVE -> merlinHelper.editComment(doc, pageUrl, comment, newText)
 			SourceCommentEngine.WPDISCUZ -> wpDiscuzHelper.editComment(doc, pageUrl, comment, newText)
 			else -> throw UnsupportedOperationException("Editing comments is not supported for this engine")
 		}
@@ -620,6 +645,7 @@ internal abstract class MangaReaderParser(
 		val pageUrl = resolveCommunityPageUrl(manga, chapter)
 		val doc = webClient.httpGet(pageUrl).parseHtml()
 		when (detectCommunityCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.NATIVE -> merlinHelper.deleteComment(doc, pageUrl, comment)
 			SourceCommentEngine.WPDISCUZ -> wpDiscuzHelper.deleteComment(doc, pageUrl, comment)
 			else -> throw UnsupportedOperationException("Deleting comments is not supported for this engine")
 		}
@@ -634,6 +660,7 @@ internal abstract class MangaReaderParser(
 		val pageUrl = resolveCommunityPageUrl(manga, chapter)
 		val doc = webClient.httpGet(pageUrl).parseHtml()
 		return when (detectCommunityCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.NATIVE -> merlinHelper.toggleCommentLike(doc, pageUrl, comment, isLike)
 			SourceCommentEngine.WPDISCUZ -> wpDiscuzHelper.toggleCommentLike(doc, pageUrl, comment, isLike)
 			else -> throw UnsupportedOperationException("Comment reactions are not supported for this engine")
 		}
@@ -649,6 +676,7 @@ internal abstract class MangaReaderParser(
 	}
 
 	private fun detectCommunityCommentEngine(doc: Document, pageUrl: String): SourceCommentEngine {
+		if (merlinHelper.isMerlinPresent(doc, pageUrl)) return SourceCommentEngine.NATIVE
 		if (wpDiscuzHelper.isWpDiscuzPresent(doc)) return SourceCommentEngine.WPDISCUZ
 		if (detectGraphComment(doc, pageUrl) != null) return SourceCommentEngine.GRAPHCOMMENT
 		if (detectDisqus(doc, pageUrl) != null) return SourceCommentEngine.DISQUS

@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.community
 
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okio.ByteString.Companion.decodeBase64
 import org.jsoup.nodes.Document
 import org.koitharu.kotatsu.parsers.model.community.SourceComment
 import org.koitharu.kotatsu.parsers.model.community.SourceCommentEngine
@@ -45,7 +46,7 @@ internal object DisqusDetector {
 	)
 
 	fun detect(doc: Document, pageUrl: String): SourceWidgetContext? {
-		val scriptsText = doc.select("script").joinToString("\n") { it.data() }
+		val scriptsText = collectScriptsText(doc)
 		val scriptSrcs = doc.select("script[src]").mapNotNull { it.attrOrNull("src") }
 		val iframeSrc = doc.selectFirst("iframe[src*=\"disqus.com\"]")?.attrOrNull("src")
 
@@ -138,7 +139,7 @@ internal object DisqusDetector {
 internal object GraphCommentDetector {
 
 	private val REGEX_GC_WEBSITE_ID = Regex(
-		"""(?:graphcomment_id|website_id|uid)\s*[:=]\s*['"]([a-zA-Z0-9_-]+)['"]""",
+		"""(?:graphcommentId|graphcomment_id|website_id|uid)\s*[:=]\s*['"]([a-zA-Z0-9_-]+)['"]""",
 	)
 	private val REGEX_GC_SRC_ID = Regex(
 		"""graphcomment\.com/.*[?&](?:graphcomment_id|website_id|uid)=([a-zA-Z0-9_-]+)""",
@@ -152,7 +153,7 @@ internal object GraphCommentDetector {
 	)
 
 	fun detect(doc: Document, pageUrl: String): SourceWidgetContext? {
-		val scriptsText = doc.select("script").joinToString("\n") { it.data() }
+		val scriptsText = collectScriptsText(doc)
 		val gcContainer = doc.selectFirst("#graphcomment, [data-graphcomment-id], [data-gc-uid]")
 		val scriptSrc = doc.select("script[src*=\"graphcomment.com\"]").firstOrNull()?.attrOrNull("src")
 		val iframeSrc = doc.selectFirst("iframe[src*=\"graphcomment.com\"]")?.attrOrNull("src")
@@ -161,6 +162,7 @@ internal object GraphCommentDetector {
 			scriptSrc != null ||
 			iframeSrc != null ||
 			scriptsText.contains("gc_params") ||
+			scriptsText.contains("graphcommentId") ||
 			scriptsText.contains("graphcomment.com")
 		if (!hasGcMarker) return null
 
@@ -176,6 +178,7 @@ internal object GraphCommentDetector {
 					?: url.queryParameter("graphcomment_id")
 					?: url.queryParameter("uid")
 			}
+			?: extractGcParam(scriptsText, "graphcommentId")
 			?: extractGcParam(scriptsText, "graphcomment_id")
 			?: extractGcParam(scriptsText, "website_id")
 			?: extractGcParam(scriptsText, "uid")
@@ -276,7 +279,7 @@ internal object HyvorTalkDetector {
 
 	fun detect(doc: Document, pageUrl: String): SourceWidgetContext? {
 		val el = doc.selectFirst("hyvor-talk-comments, hyvor-talk-view, #hyvor-talk-view")
-		val scriptsText = doc.select("script").joinToString("\n") { it.data() }
+		val scriptsText = collectScriptsText(doc)
 		val scriptSrc = doc.selectFirst("script[src*=\"talk.hyvor.com\"]")?.attrOrNull("src")
 		val iframeSrc = doc.selectFirst("iframe[src*=\"talk.hyvor.com\"]")?.attrOrNull("src")
 
@@ -395,6 +398,27 @@ internal object WidgetDetectors {
 			?: DisqusDetector.detect(doc, pageUrl)
 			?: HyvorTalkDetector.detect(doc, pageUrl)
 			?: CusdisDetector.detect(doc, pageUrl)
+	}
+}
+
+internal fun collectScriptsText(doc: Document): String = buildString {
+	for (script in doc.select("script")) {
+		val inline = script.data()
+		if (inline.isNotBlank()) {
+			appendLine(inline)
+		}
+		val src = script.attrOrNull("src") ?: continue
+		if (src.startsWith("data:", ignoreCase = true)) {
+			val base64Marker = ";base64,"
+			val idx = src.indexOf(base64Marker, ignoreCase = true)
+			if (idx >= 0) {
+				val encoded = src.substring(idx + base64Marker.length).trim()
+				val decoded = encoded.decodeBase64()?.utf8()
+				if (!decoded.isNullOrBlank()) {
+					appendLine(decoded)
+				}
+			}
+		}
 	}
 }
 

@@ -87,7 +87,7 @@ internal class Okutoon(context: MangaLoaderContext) :
 		chapter: MangaChapter?,
 		parentComment: SourceComment?,
 		isSpoiler: Boolean,
-	): SourceComment = communityHelper.postComment(manga, text, chapter, parentComment)
+	): SourceComment = communityHelper.postComment(manga, text, chapter, parentComment, isSpoiler)
 
 	override suspend fun editComment(
 		manga: Manga,

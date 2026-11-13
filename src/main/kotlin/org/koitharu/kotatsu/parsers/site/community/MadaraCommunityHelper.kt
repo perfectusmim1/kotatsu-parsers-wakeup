@@ -53,6 +53,13 @@ internal class MadaraCommunityHelper(
 		requestHeadersProvider = requestHeadersProvider,
 	)
 
+	private val merlinComments = MerlinCommentsHelper(
+		context = context,
+		source = source,
+		domainProvider = domainProvider,
+		requestHeadersProvider = requestHeadersProvider,
+	)
+
 	val baseCapabilities: SourceCommunityCapabilities = SourceCommunityCapabilities(
 		supportsStats = true,
 		supportsRating = true,
@@ -81,6 +88,7 @@ internal class MadaraCommunityHelper(
 	}
 
 	fun detectCommentEngine(doc: Document, pageUrl: String): SourceCommentEngine {
+		if (merlinComments.isMerlinPresent(doc, pageUrl)) return SourceCommentEngine.NATIVE
 		if (wpDiscuz.isWpDiscuzPresent(doc)) return SourceCommentEngine.WPDISCUZ
 		if (GraphCommentDetector.detect(doc, pageUrl) != null) return SourceCommentEngine.GRAPHCOMMENT
 		if (DisqusDetector.detect(doc, pageUrl) != null) return SourceCommentEngine.DISQUS
@@ -151,8 +159,8 @@ internal class MadaraCommunityHelper(
 			(el.attrOrNull("data-user-rating") ?: el.textOrNull())?.let { parseFloatRating(it)?.toInt() }
 		}
 
-		val commentCount = doc.selectFirst("#wpdcom .wpd-thread-info[data-comments-count]")
-			?.attrOrNull("data-comments-count")?.toIntOrNull()
+		val commentCount = doc.selectFirst("#mcp-total-count, #wpdcom .wpd-thread-info[data-comments-count]")
+			?.let { el -> (el.attrOrNull("data-comments-count") ?: el.textOrNull())?.let { parseCompactCount(it)?.toInt() } }
 			?: doc.selectFirst(".wp-manga-comments-count, .comments-title")
 				?.textOrNull()?.let { parseCompactCount(it)?.toInt() }
 
@@ -270,6 +278,12 @@ internal class MadaraCommunityHelper(
 		val pageUrl = resolvePageUrl(manga, chapter)
 		val doc = webClient.httpGet(pageUrl).parseHtml()
 		return when (val engine = detectCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.NATIVE -> merlinComments.getComments(
+				doc = doc,
+				pageUrl = pageUrl,
+				page = page,
+				sort = sort,
+			)
 			SourceCommentEngine.WPDISCUZ -> wpDiscuz.getComments(
 				doc = doc,
 				pageUrl = pageUrl,
@@ -311,10 +325,18 @@ internal class MadaraCommunityHelper(
 		text: String,
 		chapter: MangaChapter? = null,
 		parentComment: SourceComment? = null,
+		isSpoiler: Boolean = false,
 	): SourceComment {
 		val pageUrl = resolvePageUrl(manga, chapter)
 		val doc = webClient.httpGet(pageUrl).parseHtml()
 		return when (detectCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.NATIVE -> merlinComments.postComment(
+				doc = doc,
+				pageUrl = pageUrl,
+				text = text,
+				parentComment = parentComment,
+				isSpoiler = isSpoiler,
+			)
 			SourceCommentEngine.WPDISCUZ -> wpDiscuz.postComment(
 				doc = doc,
 				pageUrl = pageUrl,
@@ -341,6 +363,7 @@ internal class MadaraCommunityHelper(
 		val pageUrl = resolvePageUrl(manga, chapter)
 		val doc = webClient.httpGet(pageUrl).parseHtml()
 		return when (detectCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.NATIVE -> merlinComments.editComment(doc, pageUrl, comment, newText)
 			SourceCommentEngine.WPDISCUZ -> wpDiscuz.editComment(doc, pageUrl, comment, newText)
 			else -> throw UnsupportedOperationException("Editing comments is not supported for this engine")
 		}
@@ -354,6 +377,7 @@ internal class MadaraCommunityHelper(
 		val pageUrl = resolvePageUrl(manga, chapter)
 		val doc = webClient.httpGet(pageUrl).parseHtml()
 		when (detectCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.NATIVE -> merlinComments.deleteComment(doc, pageUrl, comment)
 			SourceCommentEngine.WPDISCUZ -> wpDiscuz.deleteComment(doc, pageUrl, comment)
 			else -> throw UnsupportedOperationException("Deleting comments is not supported for this engine")
 		}
@@ -368,6 +392,7 @@ internal class MadaraCommunityHelper(
 		val pageUrl = resolvePageUrl(manga, chapter)
 		val doc = webClient.httpGet(pageUrl).parseHtml()
 		return when (detectCommentEngine(doc, pageUrl)) {
+			SourceCommentEngine.NATIVE -> merlinComments.toggleCommentLike(doc, pageUrl, comment, isLike)
 			SourceCommentEngine.WPDISCUZ -> wpDiscuz.toggleCommentLike(doc, pageUrl, comment, isLike)
 			else -> throw UnsupportedOperationException("Comment voting is not supported for this engine")
 		}

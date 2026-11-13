@@ -37,8 +37,12 @@ import org.koitharu.kotatsu.parsers.network.OkHttpWebClient
 import org.koitharu.kotatsu.parsers.network.UserAgents
 import org.koitharu.kotatsu.parsers.site.all.MangaBallParser
 import org.koitharu.kotatsu.parsers.site.all.MangaDexParser
+import org.koitharu.kotatsu.parsers.site.en.MangaHere
 import org.koitharu.kotatsu.parsers.site.iken.en.QiScans
+import org.koitharu.kotatsu.parsers.site.mangareader.tr.Golgebahcesi
+import org.koitharu.kotatsu.parsers.site.ru.MangaBuff
 import org.koitharu.kotatsu.parsers.site.tr.TrWebtoon
+import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -916,5 +920,284 @@ internal class CommunityContractAndHelpersTest {
 		val mbComments = mb.getComments(mbManga)
 		assertEquals(1, mbComments.comments.size)
 		assertEquals("BallUser", mbComments.comments.first().authorName)
+	}
+
+	@Test
+	fun testOkutoonHoneypotRetryContentPolicyAndNonAuth403() = runTest {
+		val pageHtml = """
+			<html>
+			<head><meta name="csrf-token" content="csrf-99"></head>
+			<body>
+				<div id="comments-section" data-current-user-id="10" data-comment-action="https://okutoon.com/comments">
+					<form class="comment-form">
+						<input type="hidden" name="_hp_token" value="hp_ok_1">
+						<input type="hidden" name="_hp_t" value="1700000000">
+						<input type="text" class="auth-honeypot" name="website_url" value="">
+						<input type="checkbox" name="content_policy" value="1">
+					</form>
+				</div>
+			</body>
+			</html>
+		""".trimIndent()
+		var submitAttempts = 0
+		var returnPolicy403 = false
+		val harness = MockHttpHarness { req, body ->
+			when (req.url.encodedPath) {
+				"/manga/test-series" -> MockHttpHarness.ResponseSpec(200, pageHtml, "text/html")
+				"/comments" -> {
+					if (returnPolicy403) {
+						MockHttpHarness.ResponseSpec(403, """{"error":"İçerik politikası ihlali tespit edildi"}""")
+					} else {
+						submitAttempts++
+						assertTrue(""""website_url":"""" in body)
+						assertTrue(""""content_policy":"1"""" in body)
+						assertTrue(""""content_policy_accepted":true""" in body)
+						assertTrue(""""_hp_token":"hp_ok_1"""" in body)
+						if (submitAttempts == 1) {
+							MockHttpHarness.ResponseSpec(422, """{"error":"Lütfen en az 3 saniye bekleyin"}""")
+						} else {
+							MockHttpHarness.ResponseSpec(
+								200,
+								"""{"comment":{"id":901,"body":"<blockquote class=\"spoiler\">Hidden&lt;ok&gt;</blockquote>","user":{"id":10,"username":"cagan"},"created_at":"2026-11-13T10:00:00Z"}}""",
+							)
+						}
+					}
+				}
+				else -> MockHttpHarness.ResponseSpec(404, "{}")
+			}
+		}
+		val helper = OkutoonCommunityHelper(harness.context, harness.webClient, MangaParserSource.OKUTOON, { "okutoon.com" })
+		val manga = dummyManga("/manga/test-series", MangaParserSource.OKUTOON)
+
+		val posted = helper.postComment(manga, "Hidden<ok>", isSpoiler = true)
+		assertEquals(2, submitAttempts)
+		assertEquals("901", posted.id)
+		assertTrue(posted.isSpoiler)
+
+		returnPolicy403 = true
+		var threwParseException = false
+		try {
+			helper.postComment(manga, "Blocked text")
+		} catch (e: ParseException) {
+			threwParseException = true
+			assertTrue(e.message?.contains("politika") == true)
+		}
+		assertTrue(threwParseException)
+	}
+
+	@Test
+	fun testMerlinCommentsHelperLifecycle() = runTest {
+		val html = """
+			<html>
+			<head>
+				<script>
+				var MerlinComments = {"ajaxurl":"https://merlin.test/wp-admin/admin-ajax.php","nonce":"n_m1","post_id":"456","user_id":"9","is_logged_in":"1"};
+				</script>
+			</head>
+			<body>
+				<div id="merlin-comments-section" data-post-id="456">
+					<span id="mcp-total-count">12</span>
+				</div>
+			</body>
+			</html>
+		""".trimIndent()
+		val harness = MockHttpHarness { _, body ->
+			when {
+				"action=mcp_load_comments" in body -> MockHttpHarness.ResponseSpec(
+					200,
+					"""{"success":true,"data":{"total":12,"pages":2,"current_page":1,"user_votes":{"77":"like"},"comments":[{"id":77,"user_id":9,"display_name":"Mert","content_html":"<p>Selam</p>","has_spoiler":1,"likes_count":5,"dislikes_count":1,"replies":[{"id":78,"parent_id":77,"user_id":10,"display_name":"Ece","content":"Yanıt"}]}]}}""",
+				)
+				"action=mcp_submit_comment" in body -> {
+					assertTrue("has_spoiler=1" in body)
+					MockHttpHarness.ResponseSpec(
+						200,
+						"""{"success":true,"data":{"comment":{"id":79,"user_id":9,"display_name":"Mert","content":"Spoiler test","has_spoiler":1}}}""",
+					)
+				}
+				"action=mcp_edit_comment" in body -> MockHttpHarness.ResponseSpec(
+					200,
+					"""{"success":true,"data":{"content_html":"<p>Updated</p>"}}""",
+				)
+				"action=mcp_vote" in body -> MockHttpHarness.ResponseSpec(
+					200,
+					"""{"success":true,"data":{"likes_count":6,"dislikes_count":1}}""",
+				)
+				"action=mcp_delete_comment" in body -> MockHttpHarness.ResponseSpec(
+					200,
+					"""{"success":true,"data":{}}""",
+				)
+				else -> MockHttpHarness.ResponseSpec(404, "{}")
+			}
+		}
+		val helper = MerlinCommentsHelper(harness.context, MangaParserSource.NABISCANS, { "merlin.test" })
+		val doc = Jsoup.parse(html, "https://merlin.test/manga/demo")
+		assertTrue(helper.isMerlinPresent(doc))
+		assertEquals(12, helper.extractTotalCount(doc))
+
+		val page = helper.getComments(doc, "https://merlin.test/manga/demo", page = 1, sort = SourceCommentSort.TOP)
+		assertEquals(SourceCommentEngine.NATIVE, page.engine)
+		assertTrue(page.hasNextPage)
+		assertEquals(12, page.totalCount)
+		assertEquals(1, page.comments.size)
+		assertEquals(1, page.comments[0].userVote)
+		assertTrue(page.comments[0].isSpoiler)
+		assertTrue(page.comments[0].isOwnComment)
+		assertEquals(1, page.comments[0].replies.size)
+
+		val posted = helper.postComment(doc, "https://merlin.test/manga/demo", "Spoiler test", isSpoiler = true)
+		assertEquals("79", posted.id)
+		assertTrue(posted.isSpoiler)
+
+		val edited = helper.editComment(doc, "https://merlin.test/manga/demo", posted, "Updated")
+		assertEquals("Updated", edited.body)
+		assertTrue(edited.isEdited)
+
+		val voted = helper.toggleCommentLike(doc, "https://merlin.test/manga/demo", page.comments[0], isLike = true)
+		assertEquals(6, voted.likesCount)
+		helper.deleteComment(doc, "https://merlin.test/manga/demo", posted)
+	}
+
+	@Test
+	fun testWidgetDetectorsLiteSpeedBase64AndCamelCaseGraphComment() {
+		val disqusPayload = Base64.getEncoder().encodeToString(
+			"""var disqus_shortname = "gafeland-wp"; var disqus_identifier = "gaf-101";""".toByteArray(),
+		)
+		val litespeedHtml = """
+			<html><body>
+				<div id="disqus_thread"></div>
+				<script src="data:text/javascript;base64,$disqusPayload"></script>
+			</body></html>
+		""".trimIndent()
+		val disqusCtx = WidgetDetectors.detect(Jsoup.parse(litespeedHtml, "https://gafeland.test/manga/abc"), "https://gafeland.test/manga/abc")
+		assertNotNull(disqusCtx)
+		assertEquals(SourceCommentEngine.DISQUS, disqusCtx!!.engine)
+		assertEquals("gafeland-wp", disqusCtx.shortname)
+		assertEquals("gaf-101", disqusCtx.identifier)
+
+		val gcHtml = """
+			<html><body>
+				<div id="graphcomment"></div>
+				<script>var __semio__params = { graphcommentId: 'tortugaceviri-com' };</script>
+			</body></html>
+		""".trimIndent()
+		val gcCtx = WidgetDetectors.detect(Jsoup.parse(gcHtml, "https://tortuga.test/manga/xyz"), "https://tortuga.test/manga/xyz")
+		assertNotNull(gcCtx)
+		assertEquals(SourceCommentEngine.GRAPHCOMMENT, gcCtx!!.engine)
+		assertEquals("tortugaceviri-com", gcCtx.shortname)
+	}
+
+	@Test
+	fun testGolgebahcesiMangaHereAndMangaBuffCommunity() = runTest {
+		val harness = MockHttpHarness { req, body ->
+			when {
+				req.url.host == "api.golgebahcesi.com" && req.url.encodedPath == "/api/auth/me" ->
+					MockHttpHarness.ResponseSpec(200, """{"id":"u1","username":"gb_user","displayName":"GB User"}""")
+				req.url.host == "api.golgebahcesi.com" && req.url.encodedPath == "/api/series/demo-slug" ->
+					MockHttpHarness.ResponseSpec(200, """{"id":"s1","rating":9.2,"ratingCount":15,"viewCount":500,"followerCount":80}""")
+				req.url.host == "api.golgebahcesi.com" && req.url.encodedPath == "/api/series/s1/my-rating" ->
+					MockHttpHarness.ResponseSpec(200, """{"userRating":9}""")
+				req.url.host == "api.golgebahcesi.com" && req.url.encodedPath == "/api/series/s1/rate" -> {
+					assertTrue(""""rating":10""" in body)
+					MockHttpHarness.ResponseSpec(200, """{"userRating":10,"newRating":9.3,"ratingCount":16}""")
+				}
+				req.url.host == "api.golgebahcesi.com" && req.url.encodedPath == "/api/comments" && req.method == "GET" ->
+					MockHttpHarness.ResponseSpec(200, """{"data":[{"id":"gc1","userId":"u1","userSnapshot":{"username":"gb_user","displayName":"GB User"},"content":"Harika seri","spoiler":true,"replyCount":0,"reactionCounts":{"like":4,"dislike":0},"isLiked":true,"isDisliked":false,"createdAt":"2026-11-10T12:00:00Z"}],"meta":{"hasMore":false,"total":1}}""")
+				req.url.host == "www.mangahere.cc" && req.url.encodedPath == "/manga/demo_here/" ->
+					MockHttpHarness.ResponseSpec(200, """<html><body><span class="item-score">4.8</span><script>var comicid = 11912;</script></body></html>""", "text/html")
+				req.url.host == "www.mangahere.cc" && req.url.encodedPath == "/post.ashx" ->
+					MockHttpHarness.ResponseSpec(200, "25", "text/plain")
+				req.url.host == "www.mangahere.cc" && req.url.encodedPath == "/pagerdata.ashx" ->
+					MockHttpHarness.ResponseSpec(200, """[{"Id":55,"Poster":"HereFan","HeadUrl":"","PostContent":"Awesome&#39;s","PostTime":"2026-11-10 05:40","Support":3}]""")
+				req.url.host == "mangabuff.ru" && req.url.encodedPath == "/" ->
+					MockHttpHarness.ResponseSpec(200, """<html><head><meta name="csrf-token" content="mb_csrf"></head><body><div class="header-profile"><span class="header-profile__name">BuffUser</span></div></body></html>""", "text/html")
+				req.url.host == "mangabuff.ru" && req.url.encodedPath == "/manga/mb-demo" ->
+					MockHttpHarness.ResponseSpec(
+						200,
+						"""<html><head><meta name="csrf-token" content="mb_csrf"></head><body><span class="manga__rating">9.5</span><div class="comments" data-type="manga" data-id="38317" data-count="25"><div class="comments__list"><div id="comment_101" class="comments__item" data-time="1700000000"><div class="comments__inner"><div class="comments__name">Ivan</div><div class="comments__body">First page</div><div class="comments__rating-number">7</div><button class="comments__edit-btn"></button></div></div></div></div></body></html>""",
+						"text/html",
+					)
+				req.url.host == "mangabuff.ru" && req.url.encodedPath == "/comments/load" ->
+					MockHttpHarness.ResponseSpec(200, """{"comments":"<div id='comment_102' class='comments__item'><div class='comments__inner'><div class='comments__name'>Olga</div><div class='comments__body'>Loaded batch</div></div></div>"}""")
+				req.url.host == "mangabuff.ru" && req.url.encodedPath == "/comments" && req.method == "POST" ->
+					MockHttpHarness.ResponseSpec(200, """{"comment":"<div id='comment_103' class='comments__item'><div class='comments__inner'><div class='comments__name'>BuffUser</div><div class='comments__body'>New MB</div><button class='comments__edit-btn'></button></div></div>"}""")
+				req.url.host == "mangabuff.ru" && req.url.encodedPath == "/comments/vote" ->
+					MockHttpHarness.ResponseSpec(200, """{"rating":{"number":"8","type":"like"}}""")
+				else -> MockHttpHarness.ResponseSpec(404, "{}")
+			}
+		}
+
+		val gb = Golgebahcesi(harness.context)
+		val gbManga = dummyManga("/manga/demo-slug", MangaParserSource.GOLGEBAHCESI)
+		val gbInfo = gb.getMangaCommunityInfo(gbManga)
+		assertEquals(9.2f, gbInfo.rawRating)
+		assertEquals(10, gbInfo.rawScale)
+		assertEquals(9, gbInfo.userRating)
+		val gbRated = gb.submitRating(gbManga, 10)
+		assertEquals(10, gbRated.userRating)
+		val gbComments = gb.getComments(gbManga)
+		assertEquals(1, gbComments.comments.size)
+		assertTrue(gbComments.comments.first().isSpoiler)
+		assertTrue(gbComments.comments.first().isOwnComment)
+
+		val mh = MangaHere(harness.context)
+		val mhManga = dummyManga("/manga/demo_here/", MangaParserSource.MANGAHERE)
+		val mhInfo = mh.getMangaCommunityInfo(mhManga)
+		assertEquals(4.8f, mhInfo.rawRating)
+		assertEquals(5, mhInfo.rawScale)
+		assertEquals(25, mhInfo.commentCount)
+		val mhComments = mh.getComments(mhManga)
+		assertEquals(1, mhComments.comments.size)
+		assertEquals("Awesome's", mhComments.comments.first().body)
+
+		val mb = MangaBuff(harness.context)
+		val mbManga = dummyManga("/manga/mb-demo", MangaParserSource.MANGABUFF)
+		val mbPage1 = mb.getComments(mbManga, page = 1)
+		assertEquals(1, mbPage1.comments.size)
+		assertTrue(mbPage1.hasNextPage)
+		assertTrue(mbPage1.comments.first().isOwnComment)
+		val mbPage2 = mb.getComments(mbManga, page = 2, cursor = mbPage1.nextCursor)
+		assertEquals(1, mbPage2.comments.size)
+		assertEquals("Olga", mbPage2.comments.first().authorName)
+		val mbPosted = mb.postComment(mbManga, "New MB")
+		assertEquals("103", mbPosted.id)
+		val mbVoted = mb.toggleCommentLike(mbManga, mbPage1.comments.first(), isLike = true)
+		assertEquals(8, mbVoted.likesCount)
+	}
+
+	@Test
+	fun testOkutoonBlankCurrentUserAndHomeAuthCheck() = runTest {
+		val loggedOutSeriesHtml = """
+			<html>
+			<body data-current-username="">
+				<a href="/@ItzSnowzy" class="comment-author">ItzSnowzy</a>
+				<div class="comments-section" data-comment-action="/s/comment" data-comment-load-url="/s/comments" data-current-user-id=""></div>
+			</body>
+			</html>
+		""".trimIndent()
+		val loggedInHomeHtml = """
+			<html>
+			<body data-current-username="perfectus">
+				<a href="/@Faxed" class="feed-user">Faxed</a>
+			</body>
+			</html>
+		""".trimIndent()
+		var loggedIn = false
+		val harness = MockHttpHarness { req, _ ->
+			when (req.url.encodedPath) {
+				"/s" -> MockHttpHarness.ResponseSpec(200, loggedOutSeriesHtml, "text/html")
+				"/" -> MockHttpHarness.ResponseSpec(200, if (loggedIn) loggedInHomeHtml else loggedOutSeriesHtml, "text/html")
+				"/login" -> MockHttpHarness.ResponseSpec(403, "cf challenge", "text/html")
+				else -> MockHttpHarness.ResponseSpec(404, "")
+			}
+		}
+		val helper = OkutoonCommunityHelper(harness.context, harness.webClient, MangaParserSource.OKUTOON, { "okutoon.com" })
+		val info = helper.getMangaCommunityInfo(dummyManga("/s"))
+		assertEquals(null, info.currentUsername)
+		assertTrue(!info.canCurrentUserComment)
+		assertTrue(!helper.isAuthorized())
+
+		loggedIn = true
+		assertTrue(helper.isAuthorized())
+		assertEquals("perfectus", helper.getUsername())
 	}
 }

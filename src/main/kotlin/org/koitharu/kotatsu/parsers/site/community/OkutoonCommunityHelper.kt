@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.community
 
+import kotlinx.coroutines.delay
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
@@ -35,6 +36,7 @@ import org.koitharu.kotatsu.parsers.util.json.getStringOrNull
 import org.koitharu.kotatsu.parsers.util.json.toJSONArrayOrNull
 import org.koitharu.kotatsu.parsers.util.json.toJSONObjectOrNull
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 internal class OkutoonCommunityHelper(
 	private val context: MangaLoaderContext,
@@ -43,6 +45,8 @@ internal class OkutoonCommunityHelper(
 	private val domainProvider: () -> String,
 	private val requestHeadersProvider: () -> Headers = { Headers.Builder().build() },
 ) {
+
+	private val cachedPageContexts = ConcurrentHashMap<String, PageContext>()
 
 	val capabilities: SourceCommunityCapabilities = SourceCommunityCapabilities(
 		supportsStats = true,
@@ -85,10 +89,41 @@ internal class OkutoonCommunityHelper(
 		val csrfToken: String?,
 		val extraFormFields: Map<String, String>,
 		val isAuthenticated: Boolean,
+		val fetchedAtMs: Long = System.currentTimeMillis(),
 	)
+
+	private fun rememberPageContext(pageCtx: PageContext) {
+		if (pageCtx.pageUrl.isBlank() || !pageCtx.isAuthenticated || pageCtx.commentAction == null) return
+		if (cachedPageContexts.size >= MAX_CACHED_CONTEXTS && !cachedPageContexts.containsKey(pageCtx.pageUrl)) {
+			val oldestKey = cachedPageContexts.entries.minByOrNull { it.value.fetchedAtMs }?.key
+			if (oldestKey != null) cachedPageContexts.remove(oldestKey)
+		}
+		cachedPageContexts[pageCtx.pageUrl] = pageCtx
+	}
+
+	private fun consumeCachedPageContext(pageUrl: String): PageContext? {
+		val cached = cachedPageContexts.remove(pageUrl) ?: return null
+		val age = System.currentTimeMillis() - cached.fetchedAtMs
+		return if (age in 0L..PAGE_CONTEXT_CACHE_TTL_MS) cached else null
+	}
+
+	private suspend fun loadPageContext(pageUrl: String, forceRefresh: Boolean = false): PageContext {
+		if (!forceRefresh) {
+			consumeCachedPageContext(pageUrl)?.let { return it }
+		}
+		val doc = webClient.httpGet(pageUrl).parseHtml()
+		return extractPageContext(doc, pageUrl)
+	}
 
 	suspend fun isAuthorized(): Boolean {
 		val domain = domainProvider()
+		val homeAuthorized = runCatching {
+			val doc = webClient.httpGet("https://$domain/").parseHtml()
+			extractUsernameFromDoc(doc) != null || extractCurrentUserId(doc) != null
+		}.getOrDefault(false)
+		if (homeAuthorized) {
+			return true
+		}
 		val loginUrl = authUrl
 		return runCatching {
 			val request = Request.Builder()
@@ -185,6 +220,7 @@ internal class OkutoonCommunityHelper(
 		} ?: doc.selectFirst("div.comments-section input[name=score][checked]")?.attrOrNull("value")?.toIntOrNull()
 
 		val canInteract = pageCtx.isAuthenticated && pageCtx.commentAction != null
+		rememberPageContext(pageCtx)
 
 		return SourceMangaCommunityInfo(
 			averageRating = averageRating,
@@ -210,6 +246,7 @@ internal class OkutoonCommunityHelper(
 		val pageUrl = resolvePageUrl(manga, chapter)
 		val doc = webClient.httpGet(pageUrl).parseHtml()
 		val pageCtx = extractPageContext(doc, pageUrl)
+		rememberPageContext(pageCtx)
 		val loadUrl = pageCtx.commentLoadUrl
 			?: return SourceCommentPage(
 				comments = emptyList(),
@@ -342,13 +379,18 @@ internal class OkutoonCommunityHelper(
 		text: String,
 		chapter: MangaChapter? = null,
 		parentComment: SourceComment? = null,
+		isSpoiler: Boolean = false,
 	): SourceComment {
 		val pageUrl = resolvePageUrl(manga, chapter)
-		val doc = webClient.httpGet(pageUrl).parseHtml()
-		val pageCtx = extractPageContext(doc, pageUrl)
+		val pageCtx = loadPageContext(pageUrl)
+		val bodyText = if (isSpoiler) {
+			"<blockquote class=\"spoiler\">${escapeHtml(text)}</blockquote>"
+		} else {
+			text
+		}
 		return submitCommentOrReview(
 			pageCtx = pageCtx,
-			bodyText = text,
+			bodyText = bodyText,
 			parentComment = parentComment,
 			score = null,
 		).comment
@@ -387,19 +429,21 @@ internal class OkutoonCommunityHelper(
 		chapter: MangaChapter? = null,
 	): SourceComment {
 		val pageUrl = resolvePageUrl(manga, chapter)
-		val doc = webClient.httpGet(pageUrl).parseHtml()
-		val pageCtx = extractPageContext(doc, pageUrl)
+		val pageCtx = loadPageContext(pageUrl)
 		if (!pageCtx.isAuthenticated) {
 			throw AuthRequiredException(source)
 		}
 		val editUrl = pageCtx.editUrlTemplate?.replace("__ID__", comment.id)
 			?: throw ParseException("Comment edit URL template is missing", pageUrl)
 
+		awaitHoneypotDwell(pageCtx)
 		val payload = JSONObject().apply {
 			put("body", newText)
+			put("content_policy_accepted", true)
 			for ((k, v) in pageCtx.extraFormFields) {
 				if (!has(k)) put(k, v)
 			}
+			if (!has("website_url")) put("website_url", "")
 		}
 
 		val json = executeJsonMutation(
@@ -503,7 +547,7 @@ internal class OkutoonCommunityHelper(
 		val actionUrl = pageCtx.commentAction
 			?: throw ParseException("Comment action URL is missing", pageCtx.pageUrl)
 
-		val payload = JSONObject().apply {
+		fun buildPayload(ctx: PageContext): JSONObject = JSONObject().apply {
 			put("body", bodyText)
 			if (parentComment != null) {
 				put("parent_id", parentComment.id.toLongOrNull() ?: parentComment.id)
@@ -511,17 +555,38 @@ internal class OkutoonCommunityHelper(
 			if (score != null) {
 				put("score", score)
 			}
-			for ((k, v) in pageCtx.extraFormFields) {
+			put("content_policy_accepted", true)
+			for ((k, v) in ctx.extraFormFields) {
 				if (!has(k)) put(k, v)
+			}
+			if (!has("website_url")) {
+				put("website_url", "")
 			}
 		}
 
-		val json = executeJsonMutation(
-			method = "POST",
-			url = actionUrl,
-			payload = payload,
-			pageCtx = pageCtx,
-		)
+		awaitHoneypotDwell(pageCtx)
+		val json = try {
+			executeJsonMutation(
+				method = "POST",
+				url = actionUrl,
+				payload = buildPayload(pageCtx),
+				pageCtx = pageCtx,
+			)
+		} catch (e: ParseException) {
+			if (!isHoneypotRetryableError(e.shortMessage)) throw e
+			val freshCtx = loadPageContext(pageCtx.pageUrl, forceRefresh = true)
+			if (!freshCtx.isAuthenticated) {
+				throw AuthRequiredException(source)
+			}
+			val freshActionUrl = freshCtx.commentAction ?: actionUrl
+			awaitHoneypotDwell(freshCtx, forceMinimum = true)
+			executeJsonMutation(
+				method = "POST",
+				url = freshActionUrl,
+				payload = buildPayload(freshCtx),
+				pageCtx = freshCtx,
+			)
+		}
 
 		val dataObj = json.optJSONObject("data") ?: json
 		val commentObj = dataObj.optJSONObject("comment") ?: json.optJSONObject("comment")
@@ -590,11 +655,20 @@ internal class OkutoonCommunityHelper(
 		}
 
 		return context.httpClient.newCall(requestBuilder.build()).await().use { response ->
-			if (response.code == 401 || response.code == 403) {
+			if (response.code == 401) {
 				throw AuthRequiredException(source)
 			}
 			val rawBody = response.body.string()
 			val json = rawBody.toJSONObjectOrNull()
+			if (response.code == 403) {
+				val errMsg = json?.optJSONObject("data")?.getStringOrNull("message")
+					?: json?.getStringOrNull("message")
+					?: json?.getStringOrNull("error")
+				if (errMsg.isNullOrBlank() || isAuthFailureMessage(errMsg)) {
+					throw AuthRequiredException(source)
+				}
+				throw ParseException(errMsg, url)
+			}
 			if (response.code == 422) {
 				val dataObj = json?.optJSONObject("data") ?: json
 				val errCode = dataObj?.getStringOrNull("code")
@@ -627,7 +701,7 @@ internal class OkutoonCommunityHelper(
 
 	internal fun extractPageContext(doc: Document, pageUrl: String): PageContext {
 		val domain = domainProvider()
-		val section = doc.selectFirst("div.comments-section, .comments-section")
+		val section = doc.selectFirst("div.comments-section, .comments-section, #comments-section")
 
 		fun resolveAttr(attr: String): String? =
 			section?.attrOrNull(attr)?.let { raw ->
@@ -648,12 +722,18 @@ internal class OkutoonCommunityHelper(
 
 		val extraFields = LinkedHashMap<String, String>()
 		if (section != null) {
-			val inputs = section.select("form input, input[type=hidden], input[name*=_hp], input[name*=honeypot], input[name=content_policy]")
+			val primaryForm = section.selectFirst("form.comment-form") ?: section.selectFirst("form")
+			val inputs = (primaryForm?.select("input") ?: emptyList()) +
+				section.select("input[type=hidden], input[name*=_hp], input[name*=honeypot], input[name=website_url], input[name=content_policy]")
 			for (input in inputs) {
 				val name = input.attrOrNull("name") ?: continue
 				if (name in RESERVED_COMMENT_FIELDS) continue
+				if (extraFields.containsKey(name)) continue
 				val type = input.attr("type").lowercase(Locale.ROOT)
-				val isHoneypot = "_hp" in name || "honeypot" in name.lowercase(Locale.ROOT)
+				val isHoneypot = "_hp" in name ||
+					"honeypot" in name.lowercase(Locale.ROOT) ||
+					name.equals("website_url", ignoreCase = true) ||
+					input.parents().any { it.hasClass("auth-honeypot") }
 				val isPolicy = name == "content_policy"
 				if (type == "hidden" || isHoneypot || isPolicy) {
 					val value = if (type == "checkbox" && isPolicy) {
@@ -713,7 +793,9 @@ internal class OkutoonCommunityHelper(
 		val isReview = jo.getBooleanOrDefault("is_review", false)
 		val isPinned = jo.getBooleanOrDefault("is_pinned", false)
 		val isEdited = jo.getBooleanOrDefault("edited", false) || jo.getBooleanOrDefault("is_edited", false)
-		val isSpoiler = jo.getBooleanOrDefault("is_spoiler", false)
+		val isSpoiler = jo.getBooleanOrDefault("is_spoiler", false) ||
+			rawBody?.contains("class=\"spoiler\"", ignoreCase = true) == true ||
+			bodyHtml?.contains("class=\"spoiler\"", ignoreCase = true) == true
 		val createdAt = jo.getStringOrNull("created_at")
 		val likeCount = jo.getIntOrDefault("like_count", 0)
 		val likedByCurrentUser = jo.getBooleanOrDefault("liked_by_current_user", false)
@@ -769,8 +851,18 @@ internal class OkutoonCommunityHelper(
 	}
 
 	private fun extractUsernameFromDoc(doc: Document): String? {
-		doc.selectFirst("[data-current-username]")?.attrOrNull("data-current-username")?.let { return it }
-		val link = doc.selectFirst("a.site-profile-link, a[href^=\"/@\"]") ?: return null
+		doc.selectFirst("[data-current-username]")?.let { el ->
+			return el.attr("data-current-username").trim().nullIfEmpty()
+		}
+		val link = doc.selectFirst("a.site-profile-link")
+			?: doc.select("a[href^=\"/@\"]").firstOrNull { el ->
+				!el.hasClass("comment-author") &&
+					!el.hasClass("feed-user") &&
+					!el.hasClass("feed-avatar-link") &&
+					!el.hasClass("feed-user-name") &&
+					el.parents().none { p -> p.hasClass("comments-section") || p.id() == "comments-section" }
+			}
+			?: return null
 		return link.textOrNull()?.removePrefix("@")?.trim()?.nullIfEmpty()
 			?: link.attrOrNull("href")?.substringAfter("/@", "")?.substringBefore("/")?.nullIfEmpty()
 	}
@@ -852,9 +944,60 @@ internal class OkutoonCommunityHelper(
 		else -> null
 	}
 
+	private suspend fun awaitHoneypotDwell(pageCtx: PageContext, forceMinimum: Boolean = false) {
+		val hasHoneypotToken = pageCtx.extraFormFields.keys.any { key ->
+			key.contains("_hp", ignoreCase = true) || key.contains("honeypot", ignoreCase = true)
+		}
+		if (!hasHoneypotToken && !forceMinimum) return
+		val elapsed = if (forceMinimum) 0L else (System.currentTimeMillis() - pageCtx.fetchedAtMs).coerceAtLeast(0L)
+		val remaining = MIN_HONEYPOT_DWELL_MS - elapsed
+		if (remaining > 0L) {
+			delay(remaining)
+		}
+	}
+
+	private fun isAuthFailureMessage(message: String): Boolean {
+		val lower = message.lowercase(Locale.ROOT)
+		return lower.contains("forbidden") ||
+			lower.contains("unauthorized") ||
+			lower.contains("unauthenticated") ||
+			lower.contains("giriş") ||
+			lower.contains("oturum") ||
+			lower.contains("login") ||
+			lower.contains("sign in")
+	}
+
+	private fun isHoneypotRetryableError(message: String?): Boolean {
+		val lower = message?.lowercase(Locale.ROOT) ?: return false
+		if (lower.contains("profanity") || lower.contains("uygunsuz")) return false
+		return lower.contains("tekrar deneyin") ||
+			lower.contains("bekleyin") ||
+			lower.contains("wait") ||
+			lower.contains("honeypot") ||
+			lower.contains("çok hızlı") ||
+			lower.contains("too fast") ||
+			lower.contains("spam")
+	}
+
+	private fun escapeHtml(text: String): String = buildString(text.length + 16) {
+		for (ch in text) {
+			when (ch) {
+				'&' -> append("&amp;")
+				'<' -> append("&lt;")
+				'>' -> append("&gt;")
+				'"' -> append("&quot;")
+				'\'' -> append("&#39;")
+				else -> append(ch)
+			}
+		}
+	}
+
 	private companion object {
 		const val DEFAULT_BATCH_SIZE = 10
 		const val REPLIES_BATCH_SIZE = 10
+		const val MIN_HONEYPOT_DWELL_MS = 3300L
+		const val PAGE_CONTEXT_CACHE_TTL_MS = 180_000L
+		const val MAX_CACHED_CONTEXTS = 24
 		val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 		val RESERVED_COMMENT_FIELDS = setOf("body", "parent_id", "score", "csrf_token", "_csrf", "_token")
 		val REGEX_SLASH_SCALE = Regex("""/\s*\d+\b""")

@@ -2,8 +2,11 @@ package org.koitharu.kotatsu.parsers.site.en
 
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
@@ -21,15 +24,26 @@ import org.koitharu.kotatsu.parsers.model.MangaState
 import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.model.RATING_UNKNOWN
 import org.koitharu.kotatsu.parsers.model.SortOrder
+import org.koitharu.kotatsu.parsers.model.community.SourceComment
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentEngine
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentPage
+import org.koitharu.kotatsu.parsers.model.community.SourceCommentSort
+import org.koitharu.kotatsu.parsers.model.community.SourceCommunityCapabilities
+import org.koitharu.kotatsu.parsers.model.community.SourceMangaCommunityInfo
+import org.koitharu.kotatsu.parsers.model.community.SourceWidgetContext
+import org.koitharu.kotatsu.parsers.site.community.WidgetDetectors
+import org.koitharu.kotatsu.parsers.site.community.parseFloatRating
 import org.koitharu.kotatsu.parsers.util.attrAsRelativeUrl
 import org.koitharu.kotatsu.parsers.util.attrOrNull
 import org.koitharu.kotatsu.parsers.util.generateUid
 import org.koitharu.kotatsu.parsers.util.insertCookies
+import org.koitharu.kotatsu.parsers.util.json.getStringOrNull
 import org.koitharu.kotatsu.parsers.util.mapChapters
 import org.koitharu.kotatsu.parsers.util.mapNotNullToSet
 import org.koitharu.kotatsu.parsers.util.nullIfEmpty
 import org.koitharu.kotatsu.parsers.util.oneOrThrowIfMany
 import org.koitharu.kotatsu.parsers.util.parseHtml
+import org.koitharu.kotatsu.parsers.util.parseJsonArray
 import org.koitharu.kotatsu.parsers.util.parseRaw
 import org.koitharu.kotatsu.parsers.util.parseSafe
 import org.koitharu.kotatsu.parsers.util.src
@@ -43,7 +57,27 @@ import java.util.Locale
 
 @MangaSourceParser("MANGAHERE", "MangaHere", "en")
 internal class MangaHere(context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.MANGAHERE, pageSize = 70, searchPageSize = 12) {
+	PagedMangaParser(context, MangaParserSource.MANGAHERE, pageSize = 70, searchPageSize = 12),
+	MangaSourceCommunityProvider {
+
+	override val capabilities: SourceCommunityCapabilities = SourceCommunityCapabilities(
+		supportsStats = true,
+		supportsRating = false,
+		maxRatingScale = 5,
+		supportsNativeComments = true,
+		supportsCommentPosting = false,
+		supportsReplies = false,
+		supportsCommentLikes = false,
+		supportsCommentDislikes = false,
+		supportsChapterComments = false,
+		commentEngine = SourceCommentEngine.NATIVE,
+		supportsWidgetFallback = true,
+		supportedSorts = setOf(
+			SourceCommentSort.NEWEST,
+			SourceCommentSort.OLDEST,
+			SourceCommentSort.TOP,
+		),
+	)
 
 	override val configKeyDomain = ConfigKey.Domain("www.mangahere.cc")
 
@@ -510,7 +544,159 @@ internal class MangaHere(context: MangaLoaderContext) :
 		return chars.reverse().toString()
 	}
 
+	override suspend fun getMangaCommunityInfo(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceMangaCommunityInfo {
+		context.cookieJar.insertCookies(domain, "isAdult=1")
+		val pageUrl = manga.url.toAbsoluteUrl(domain)
+		val doc = webClient.httpGet(pageUrl).parseHtml()
+		val rawRating = doc.selectFirst("span.item-score")?.textOrNull()?.let(::parseFloatRating)
+		val comicId = extractComicId(doc)
+		val commentCount = comicId?.let { mid ->
+			runCatching {
+				val countUrl = "https://$domain/post.ashx".toHttpUrl().newBuilder()
+					.addQueryParameter("mid", mid)
+					.addQueryParameter("type", "1")
+					.addQueryParameter("action", "postcount")
+					.build()
+				webClient.httpGet(countUrl).parseRaw().trim().toIntOrNull()
+			}.getOrNull()
+		}
+
+		return SourceMangaCommunityInfo(
+			averageRating = rawRating?.let { (it / 5f).coerceIn(0f, 1f) },
+			rawRating = rawRating,
+			rawScale = 5,
+			commentCount = commentCount,
+		)
+	}
+
+	override suspend fun getComments(
+		manga: Manga,
+		chapter: MangaChapter?,
+		page: Int,
+		sort: SourceCommentSort,
+		cursor: String?,
+	): SourceCommentPage {
+		context.cookieJar.insertCookies(domain, "isAdult=1")
+		val pageUrl = manga.url.toAbsoluteUrl(domain)
+		val doc = webClient.httpGet(pageUrl).parseHtml()
+		val comicId = extractComicId(doc)
+		if (comicId == null) {
+			val widget = WidgetDetectors.detect(doc, pageUrl) ?: buildCustomWidget(doc, pageUrl, manga.title)
+			return SourceCommentPage(
+				comments = emptyList(),
+				page = page,
+				hasNextPage = false,
+				widgetContext = widget,
+				engine = widget.engine,
+			)
+		}
+
+		val pageSize = 20
+		val pageIndex = page.coerceAtLeast(1)
+		val sortParam = when (sort) {
+			SourceCommentSort.OLDEST -> "1"
+			SourceCommentSort.TOP -> "2"
+			SourceCommentSort.NEWEST -> "0"
+		}
+		val dataUrl = "https://$domain/pagerdata.ashx".toHttpUrl().newBuilder()
+			.addQueryParameter("pageindex", pageIndex.toString())
+			.addQueryParameter("pagesize", pageSize.toString())
+			.addQueryParameter("mid", comicId)
+			.addQueryParameter("t", "4")
+			.addQueryParameter("sort", sortParam)
+			.build()
+		val ajaxHeaders = getRequestHeaders().newBuilder()
+			.set("Referer", pageUrl)
+			.set("X-Requested-With", "XMLHttpRequest")
+			.build()
+		val array = webClient.httpGet(dataUrl, ajaxHeaders).parseJsonArray()
+		val comments = ArrayList<SourceComment>(array.length())
+		val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+		for (i in 0 until array.length()) {
+			val jo = array.optJSONObject(i) ?: continue
+			val id = jo.opt("Id")?.toString()?.nullIfEmpty() ?: "mh-$pageIndex-$i"
+			val author = jo.getStringOrNull("Poster")?.nullIfEmpty() ?: "Anonymous"
+			val avatar = jo.getStringOrNull("HeadUrl")?.nullIfEmpty()?.let { raw ->
+				if (raw.startsWith("//")) "https:$raw" else raw.toAbsoluteUrl(domain)
+			}
+			val rawHtml = jo.getStringOrNull("PostContent")
+				?: jo.getStringOrNull("ShortContent")
+				?: ""
+			val body = Jsoup.parseBodyFragment(rawHtml).text().trim()
+			val postTime = jo.getStringOrNull("PostTime")?.nullIfEmpty()
+			val epochMs = postTime?.let { timeFormat.parseSafe(it) }?.takeIf { it > 0L }
+			val support = jo.opt("Support")?.toString()?.toIntOrNull()?.coerceAtLeast(0)
+				?: jo.opt("PraiseCount")?.toString()?.toIntOrNull()?.coerceAtLeast(0)
+				?: 0
+
+			comments.add(
+				SourceComment(
+					id = id,
+					authorName = author,
+					authorAvatarUrl = avatar,
+					body = body,
+					createdAtEpochMs = epochMs,
+					createdAtText = postTime,
+					likesCount = support,
+				),
+			)
+		}
+
+		val total = runCatching {
+			val countUrl = "https://$domain/post.ashx".toHttpUrl().newBuilder()
+				.addQueryParameter("mid", comicId)
+				.addQueryParameter("type", "1")
+				.addQueryParameter("action", "postcount")
+				.build()
+			webClient.httpGet(countUrl).parseRaw().trim().toIntOrNull()
+		}.getOrNull()
+		val hasNext = comments.size >= pageSize && (total == null || pageIndex * pageSize < total)
+
+		return SourceCommentPage(
+			comments = comments,
+			page = pageIndex,
+			hasNextPage = hasNext,
+			totalCount = total,
+			engine = SourceCommentEngine.NATIVE,
+		)
+	}
+
+	override suspend fun resolveWidgetContext(
+		manga: Manga,
+		chapter: MangaChapter?,
+	): SourceWidgetContext {
+		context.cookieJar.insertCookies(domain, "isAdult=1")
+		val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
+		val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
+		if (doc != null) {
+			WidgetDetectors.detect(doc, pageUrl)?.let { return it }
+		}
+		return buildCustomWidget(doc, pageUrl, manga.title)
+	}
+
+	private fun extractComicId(doc: Document): String? {
+		for (script in doc.select("script")) {
+			val match = COMIC_ID_REGEX.find(script.data())
+			if (match != null) return match.groupValues[1]
+		}
+		return COMIC_ID_REGEX.find(doc.html())?.groupValues?.get(1)
+	}
+
+	private fun buildCustomWidget(doc: Document?, pageUrl: String, fallbackTitle: String): SourceWidgetContext {
+		return SourceWidgetContext(
+			engine = SourceCommentEngine.CUSTOM_WIDGET,
+			pageUrl = pageUrl,
+			widgetUrl = pageUrl,
+			title = doc?.title()?.nullIfEmpty() ?: fallbackTitle,
+			baseUrl = pageUrl,
+		)
+	}
+
 	private companion object {
+		val COMIC_ID_REGEX = Regex("""comicid\s*=\s*['"]?(\d+)['"]?""")
 		val CHAPTER_ID_REGEX = Regex("""chapterid\s*=\s*(\d+)""")
 		val IMAGE_COUNT_REGEX = Regex("""imagecount\s*=\s*(\d+)""")
 		val DATE_REGEX = Regex("""^[A-Za-z]{3}\s+\d{1,2},\d{4}$""")

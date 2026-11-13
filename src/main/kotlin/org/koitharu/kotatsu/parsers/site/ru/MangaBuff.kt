@@ -2,6 +2,7 @@ package org.koitharu.kotatsu.parsers.site.ru
 
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.json.JSONObject
 import org.jsoup.HttpStatusException
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -108,11 +109,13 @@ internal class MangaBuff(context: MangaLoaderContext) :
 		supportsRating = false,
 		maxRatingScale = 10,
 		supportsNativeComments = true,
-		supportsCommentPosting = false,
+		supportsCommentPosting = true,
 		supportsReplies = true,
-		supportsCommentLikes = false,
-		supportsCommentDislikes = false,
-		supportsChapterComments = false,
+		supportsCommentLikes = true,
+		supportsCommentDislikes = true,
+		supportsCommentEditing = true,
+		supportsCommentDeleting = true,
+		supportsChapterComments = true,
 		commentEngine = SourceCommentEngine.NATIVE,
 		supportsWidgetFallback = true,
 		requiresAuthForRating = true,
@@ -425,21 +428,32 @@ internal class MangaBuff(context: MangaLoaderContext) :
 		manga: Manga,
 		chapter: MangaChapter?,
 	): SourceMangaCommunityInfo {
-		val pageUrl = manga.url.toAbsoluteUrl(domain)
-		val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
-		val rawRating = doc?.selectFirst("[itemprop=ratingValue], .manga__rating")
+		val mangaUrl = manga.url.toAbsoluteUrl(domain)
+		val mangaDoc = runCatching { webClient.httpGet(mangaUrl).parseHtml() }.getOrNull()
+		mangaDoc?.let(::refreshCsrfFromDoc)
+		val chapterDoc = if (chapter != null) {
+			runCatching { webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml() }.getOrNull()
+				?.also(::refreshCsrfFromDoc)
+		} else {
+			null
+		}
+
+		val rawRating = mangaDoc?.selectFirst("[itemprop=ratingValue], .manga__rating")
 			?.let { (it.attrOrNull("content") ?: it.textOrNull())?.let(::parseFloatRating) }
-		val ratingCount = doc?.selectFirst("[itemprop=ratingCount]")
+		val ratingCount = mangaDoc?.selectFirst("[itemprop=ratingCount]")
 			?.attrOrNull("content")
 			?.toIntOrNull()
-		val viewCount = doc?.selectFirst(".manga__views")
+		val viewCount = mangaDoc?.selectFirst(".manga__views")
 			?.textOrNull()
 			?.filter { it.isDigit() }
 			?.toLongOrNull()
-		val followCount = doc?.selectFirst(".manga[data-fav-count]")
+		val followCount = mangaDoc?.selectFirst(".manga[data-fav-count]")
 			?.attrOrNull("data-fav-count")
 			?.toLongOrNull()
-		val commentCount = doc?.selectFirst(".comments[data-count]")
+		val mangaCommentCount = mangaDoc?.selectFirst(".comments[data-count]")
+			?.attrOrNull("data-count")
+			?.toIntOrNull()
+		val chapterCommentCount = chapterDoc?.selectFirst(".comments[data-count]")
 			?.attrOrNull("data-count")
 			?.toIntOrNull()
 		val authorized = runCatching { isAuthorized() }.getOrDefault(false)
@@ -452,7 +466,8 @@ internal class MangaBuff(context: MangaLoaderContext) :
 			ratingCount = ratingCount,
 			viewCount = viewCount,
 			followCount = followCount,
-			commentCount = commentCount,
+			commentCount = mangaCommentCount,
+			chapterCommentCount = chapterCommentCount,
 			canCurrentUserComment = authorized,
 			currentUsername = username,
 		)
@@ -466,22 +481,62 @@ internal class MangaBuff(context: MangaLoaderContext) :
 		cursor: String?,
 	): SourceCommentPage {
 		val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
-		if (page == 1 && chapter == null) {
-			val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
-			if (doc != null) {
-				val total = doc.selectFirst(".comments[data-count]")?.attrOrNull("data-count")?.toIntOrNull()
+		val doc = runCatching { webClient.httpGet(pageUrl).parseHtml() }.getOrNull()
+		if (doc != null) {
+			refreshCsrfFromDoc(doc)
+			val commentsEl = doc.selectFirst(".comments[data-id][data-type]")
+			val commentableId = commentsEl?.attrOrNull("data-id")
+			val commentableType = commentsEl?.attrOrNull("data-type")
+				?: if (chapter != null) "mangaChapter" else "manga"
+			val total = commentsEl?.attrOrNull("data-count")?.toIntOrNull()
+			val authorized = runCatching { isAuthorized() }.getOrDefault(false)
+			val offset = cursor?.toIntOrNull() ?: ((page - 1).coerceAtLeast(0) * 20)
+
+			if (page <= 1 && cursor == null) {
 				val items = doc.select(".comments__list > .comments__item").mapNotNull { el ->
-					parseMangaBuffComment(el)
+					parseMangaBuffComment(el, authorized = authorized)
 				}
-				if (items.isNotEmpty()) {
+				if (items.isNotEmpty() || total == 0) {
+					val hasMore = total != null && items.size < total
 					return SourceCommentPage(
 						comments = items,
 						page = 1,
-						hasNextPage = false,
+						hasNextPage = hasMore,
 						totalCount = total,
+						nextCursor = if (hasMore) items.size.toString() else null,
 						engine = SourceCommentEngine.NATIVE,
 					)
 				}
+			}
+
+			if (commentableId != null) {
+				val json = postCommentAjax(
+					path = "/comments/load",
+					form = mapOf(
+						"id" to commentableId,
+						"type" to commentableType,
+						"offset" to offset.toString(),
+					),
+					referer = pageUrl,
+				)
+				val html = json.optString("comments")
+				val items = if (html.isNotBlank()) {
+					Jsoup.parseBodyFragment(html).select(".comments__item").mapNotNull { el ->
+						parseMangaBuffComment(el, authorized = authorized)
+					}
+				} else {
+					emptyList()
+				}
+				val nextOffset = offset + items.size
+				val hasMore = items.isNotEmpty() && (total == null || nextOffset < total)
+				return SourceCommentPage(
+					comments = items,
+					page = page.coerceAtLeast(1),
+					hasNextPage = hasMore,
+					totalCount = total,
+					nextCursor = if (hasMore) nextOffset.toString() else null,
+					engine = SourceCommentEngine.NATIVE,
+				)
 			}
 		}
 		val widget = resolveWidgetContext(manga, chapter)
@@ -492,6 +547,218 @@ internal class MangaBuff(context: MangaLoaderContext) :
 			widgetContext = widget,
 			engine = widget.engine,
 		)
+	}
+
+	override suspend fun getReplies(
+		manga: Manga,
+		comment: SourceComment,
+		chapter: MangaChapter?,
+		page: Int,
+		cursor: String?,
+	): SourceCommentPage {
+		val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
+		val offset = cursor?.toIntOrNull() ?: 0
+		val token = getToken()
+		val json = postCommentAjax(
+			path = "/comments/replies/load",
+			form = mapOf(
+				"parent_id" to comment.id,
+				"offset" to offset.toString(),
+				"_token" to token,
+			),
+			referer = pageUrl,
+		)
+		val authorized = runCatching { isAuthorized() }.getOrDefault(false)
+		val html = json.optString("html")
+		val items = if (html.isNotBlank()) {
+			Jsoup.parseBodyFragment(html).select(".comments__item").mapNotNull { el ->
+				parseMangaBuffComment(el, parentId = comment.id, authorized = authorized)
+			}
+		} else {
+			emptyList()
+		}
+		if (items.isEmpty() && comment.replies.isNotEmpty() && offset == 0) {
+			return SourceCommentPage(
+				comments = comment.replies,
+				page = page,
+				hasNextPage = false,
+				engine = SourceCommentEngine.NATIVE,
+			)
+		}
+		val nextOffset = json.optInt("next_offset", offset + items.size)
+		val hasMore = json.optBoolean("has_more", false)
+		return SourceCommentPage(
+			comments = items,
+			page = page,
+			hasNextPage = hasMore,
+			nextCursor = if (hasMore) nextOffset.toString() else null,
+			engine = SourceCommentEngine.NATIVE,
+		)
+	}
+
+	override suspend fun postComment(
+		manga: Manga,
+		text: String,
+		chapter: MangaChapter?,
+		parentComment: SourceComment?,
+		isSpoiler: Boolean,
+	): SourceComment {
+		val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
+		val doc = webClient.httpGet(pageUrl).parseHtml()
+		refreshCsrfFromDoc(doc)
+		val commentsEl = doc.selectFirst(".comments[data-id][data-type]")
+			?: throw ParseException("Comments container not found", pageUrl)
+		val commentableId = commentsEl.attrOrNull("data-id")
+			?: throw ParseException("commentable_id not found", pageUrl)
+		val commentableType = commentsEl.attrOrNull("data-type")
+			?: if (chapter != null) "mangaChapter" else "manga"
+
+		val params = LinkedHashMap<String, String>().apply {
+			put("text", text)
+			put("commentable_id", commentableId)
+			put("commentable_type", commentableType)
+			parentComment?.id?.let { put("parent_id", it) }
+		}
+		val json = postCommentAjax(
+			path = "/comments",
+			form = params,
+			referer = pageUrl,
+		)
+		val commentHtml = json.optString("comment")
+		if (commentHtml.isNotBlank()) {
+			Jsoup.parseBodyFragment(commentHtml).selectFirst(".comments__item")?.let { el ->
+				parseMangaBuffComment(el, parentId = parentComment?.id, authorized = true)?.let { return it }
+			}
+		}
+		return SourceComment(
+			id = "mb-${System.currentTimeMillis()}",
+			authorName = runCatching { getUsername() }.getOrNull() ?: "You",
+			body = text,
+			createdAtEpochMs = System.currentTimeMillis(),
+			parentId = parentComment?.id,
+			isOwnComment = true,
+			canReply = true,
+			canLike = true,
+			canDislike = true,
+			canEdit = true,
+			canDelete = true,
+		)
+	}
+
+	override suspend fun editComment(
+		manga: Manga,
+		comment: SourceComment,
+		newText: String,
+		chapter: MangaChapter?,
+	): SourceComment {
+		val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
+		val json = postCommentAjax(
+			path = "/comments/${comment.id}",
+			form = mapOf("text" to newText),
+			referer = pageUrl,
+		)
+		val commentHtml = json.optString("comment")
+		if (commentHtml.isNotBlank()) {
+			Jsoup.parseBodyFragment(commentHtml).selectFirst(".comments__item")?.let { el ->
+				parseMangaBuffComment(el, parentId = comment.parentId, authorized = true)?.let {
+					return it.copy(isEdited = true)
+				}
+			}
+		}
+		return comment.copy(
+			body = newText,
+			bodyHtml = null,
+			isEdited = true,
+		)
+	}
+
+	override suspend fun deleteComment(
+		manga: Manga,
+		comment: SourceComment,
+		chapter: MangaChapter?,
+	) {
+		val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
+		postCommentAjax(
+			path = "/comments/${comment.id}/delete",
+			form = emptyMap(),
+			referer = pageUrl,
+		)
+	}
+
+	override suspend fun toggleCommentLike(
+		manga: Manga,
+		comment: SourceComment,
+		isLike: Boolean,
+		chapter: MangaChapter?,
+	): SourceComment {
+		val pageUrl = (chapter?.url ?: manga.url).toAbsoluteUrl(domain)
+		val json = postCommentAjax(
+			path = "/comments/vote",
+			form = mapOf(
+				"id" to comment.id,
+				"type" to if (isLike) "like" else "dislike",
+			),
+			referer = pageUrl,
+		)
+		val ratingObj = json.optJSONObject("rating")
+		val score = ratingObj?.opt("number")?.toString()?.toIntOrNull()
+		val voteType = ratingObj?.optString("type")?.lowercase(Locale.ROOT)?.nullIfEmpty()
+		val newVote = when (voteType) {
+			"like" -> 1
+			"dislike" -> -1
+			null -> if (isLike) {
+				if (comment.userVote == 1) 0 else 1
+			} else {
+				if (comment.userVote == -1) 0 else -1
+			}
+			else -> 0
+		}
+		return comment.copy(
+			likesCount = score?.coerceAtLeast(0)
+				?: (comment.likesCount + if (newVote == 1) 1 else if (comment.userVote == 1) -1 else 0).coerceAtLeast(0),
+			dislikesCount = score?.let { (-it).coerceAtLeast(0) }
+				?: (comment.dislikesCount + if (newVote == -1) 1 else if (comment.userVote == -1) -1 else 0).coerceAtLeast(0),
+			userVote = newVote,
+		)
+	}
+
+	private fun refreshCsrfFromDoc(doc: Document) {
+		doc.selectFirst("head meta[name*=csrf-token]")?.attrOrNull("content")?.let {
+			csrfToken = it
+		}
+	}
+
+	private suspend fun postCommentAjax(
+		path: String,
+		form: Map<String, String>,
+		referer: String,
+	): JSONObject {
+		val endpoint = "https://$domain$path".toHttpUrl()
+		fun buildHeaders(token: String): Headers = Headers.Builder()
+			.add("X-Requested-With", "XMLHttpRequest")
+			.add("X-CSRF-TOKEN", token)
+			.add("Referer", referer)
+			.build()
+
+		return try {
+			webClient.httpPost(endpoint, form, buildHeaders(getToken())).parseJson()
+		} catch (e: HttpStatusException) {
+			when (e.statusCode) {
+				401, 403 -> throw AuthRequiredException(source, e)
+				419 -> {
+					csrfToken = null
+					try {
+						webClient.httpPost(endpoint, form, buildHeaders(getToken())).parseJson()
+					} catch (e2: HttpStatusException) {
+						if (e2.statusCode == 401 || e2.statusCode == 403) {
+							throw AuthRequiredException(source, e2)
+						}
+						throw e2
+					}
+				}
+				else -> throw e
+			}
+		}
 	}
 
 	override suspend fun resolveWidgetContext(
@@ -512,7 +779,11 @@ internal class MangaBuff(context: MangaLoaderContext) :
 		)
 	}
 
-	private fun parseMangaBuffComment(el: Element, parentId: String? = null): SourceComment? {
+	private fun parseMangaBuffComment(
+		el: Element,
+		parentId: String? = null,
+		authorized: Boolean = false,
+	): SourceComment? {
 		val id = el.id().removePrefix("comment_").nullIfEmpty() ?: return null
 		val author = el.selectFirst(".comments__name")?.textOrNull() ?: "Аноним"
 		val avatar = el.selectFirst(".comments__avatar img:not(.frame)")?.attrAsAbsoluteUrlOrNull("src")
@@ -522,8 +793,21 @@ internal class MangaBuff(context: MangaLoaderContext) :
 		val body = bodyEl?.text()?.trim().orEmpty()
 		val bodyHtml = bodyEl?.html()?.nullIfEmpty()
 		val score = el.selectFirst("> .comments__inner .comments__rating-number")?.textOrNull()?.toIntOrNull() ?: 0
+		val userVote = when {
+			el.selectFirst("> .comments__inner .comments__rating-btn--like.comments__rating-btn--active") != null -> 1
+			el.selectFirst("> .comments__inner .comments__rating-btn--dislike.comments__rating-btn--active") != null -> -1
+			else -> 0
+		}
 		val replies = el.select("> .comments__children > .comments__item, > .comments__replies > .comments__item")
-			.mapNotNull { child -> parseMangaBuffComment(child, parentId = id) }
+			.mapNotNull { child -> parseMangaBuffComment(child, parentId = id, authorized = authorized) }
+		val loadMoreCount = el.selectFirst("> .comments__children .comments__children-load")
+			?.let { btn ->
+				btn.attrOrNull("data-count")?.toIntOrNull()
+					?: btn.text().filter { it.isDigit() }.toIntOrNull()
+			} ?: 0
+		val canEdit = el.selectFirst("> .comments__inner .comments__edit-btn") != null
+		val canDelete = el.selectFirst("> .comments__inner .comments__delete-btn") != null
+		val isOwn = canEdit || canDelete
 
 		return SourceComment(
 			id = id,
@@ -535,9 +819,16 @@ internal class MangaBuff(context: MangaLoaderContext) :
 			createdAtText = dateText,
 			likesCount = score.coerceAtLeast(0),
 			dislikesCount = (-score).coerceAtLeast(0),
-			repliesCount = replies.size,
+			userVote = userVote,
+			repliesCount = maxOf(replies.size + loadMoreCount, replies.size),
 			parentId = parentId,
 			replies = replies,
+			isOwnComment = isOwn,
+			canReply = authorized && parentId == null,
+			canLike = authorized,
+			canDislike = authorized,
+			canEdit = canEdit,
+			canDelete = canDelete,
 		)
 	}
 
