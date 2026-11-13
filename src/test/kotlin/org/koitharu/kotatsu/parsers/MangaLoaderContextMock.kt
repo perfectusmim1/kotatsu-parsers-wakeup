@@ -8,6 +8,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.koitharu.kotatsu.parsers.bitmap.Bitmap
 import org.koitharu.kotatsu.parsers.config.MangaSourceConfig
+import org.koitharu.kotatsu.parsers.core.ParsersBundleImpl
 import org.koitharu.kotatsu.parsers.model.MangaSource
 import org.koitharu.kotatsu.parsers.network.UserAgents
 import org.koitharu.kotatsu.parsers.util.await
@@ -27,6 +28,9 @@ internal object MangaLoaderContextMock : MangaLoaderContext() {
 	override val cookieJar = InMemoryCookieJar()
 
 	private val authValues = HashMap<String, String>()
+
+	override val parsers: ParsersBundle
+		get() = ParsersBundleImpl
 
 	override suspend fun getAuthValue(source: MangaSource, key: String): String? =
 		authValues["${source.name}:$key"]

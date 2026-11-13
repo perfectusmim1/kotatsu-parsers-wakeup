@@ -325,11 +325,19 @@ internal abstract class MangaReaderParser(
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
 		val chapterUrl = chapter.url.toAbsoluteUrl(domain)
 		val docs = webClient.httpGet(chapterUrl).parseHtml()
+		return parsePagesFromDocument(docs)
+	}
 
-		val test = docs.select(selectTestScript)
-		if (test.isNullOrEmpty() and !encodedSrc) {
-			return docs.select(selectPage).map { img ->
-				val url = img.requireSrc().toRelativeUrl(domain)
+	protected fun parsePagesFromDocument(docs: org.jsoup.nodes.Document): List<MangaPage> {
+		val scriptUrls = MangaReaderScriptSupport.extractScriptPageUrls(
+			context = context,
+			docs = docs,
+			selectTestScript = selectTestScript,
+			selectScript = selectScript,
+			encodedSrc = encodedSrc,
+		)
+		if (scriptUrls.isNotEmpty()) {
+			return scriptUrls.map { url ->
 				MangaPage(
 					id = generateUid(url),
 					url = url,
@@ -337,44 +345,15 @@ internal abstract class MangaReaderParser(
 					source = source,
 				)
 			}
-		} else {
-			val images = if (encodedSrc) {
-				val script = docs.select(selectScript)
-				var decode = ""
-				for (i in script) {
-					if (i.attr("src").startsWith("data:text/javascript;base64,")) {
-						decode = Base64.getDecoder().decode(i.attr("src").replace("data:text/javascript;base64,", ""))
-							.decodeToString()
-						if (decode.startsWith("ts_reader.run")) {
-							break
-						}
-					}
-				}
-				JSONObject(decode.substringAfter('(').substringBeforeLast(')'))
-					.getJSONArray("sources")
-					.getJSONObject(0)
-					.getJSONArray("images")
-
-			} else {
-				val script = docs.selectFirstOrThrow(selectTestScript)
-				JSONObject(script.data().substringAfter('(').substringBeforeLast(')'))
-					.getJSONArray("sources")
-					.getJSONObject(0)
-					.getJSONArray("images")
-			}
-
-			val pages = ArrayList<MangaPage>(images.length())
-			for (i in 0 until images.length()) {
-				pages.add(
-					MangaPage(
-						id = generateUid(images.getString(i)),
-						url = images.getString(i),
-						preview = null,
-						source = source,
-					),
-				)
-			}
-			return pages
+		}
+		return docs.select(selectPage).map { img ->
+			val url = img.requireSrc().toRelativeUrl(domain)
+			MangaPage(
+				id = generateUid(url),
+				url = url,
+				preview = null,
+				source = source,
+			)
 		}
 	}
 

@@ -46,7 +46,10 @@ internal abstract class MadaraParser(
 	protected open val withoutAjax = false
 	protected open val authorSearchSupported = false
 
-	override val availableSortOrders: Set<SortOrder> = setupAvailableSortOrders()
+	// For sites that mix manga with novels: lists only the titles whose chapters are images (ajax listings only)
+	protected open val mangaChaptersOnly = false
+
+	override val availableSortOrders: Set<SortOrder> by lazy(::setupAvailableSortOrders)
 
 	private fun setupAvailableSortOrders(): Set<SortOrder> {
 		return if (!withoutAjax) {
@@ -567,6 +570,11 @@ internal abstract class MadaraParser(
 						ContentRating.ADULT -> "a%3A1%3A%7Bi%3A0%3Bs%3A3%3A%22yes%22%3B%7D"
 						else -> ""
 					}
+			}
+
+			if (mangaChaptersOnly) {
+				payload["vars[meta_query][0][2][key]"] = "_wp_manga_chapter_type"
+				payload["vars[meta_query][0][2][value]"] = "manga"
 			}
 
 			return parseMangaList(

@@ -18,9 +18,11 @@ import org.junit.jupiter.api.Test
 import org.koitharu.kotatsu.parsers.InMemoryCookieJar
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaLoaderContextMock
+import org.koitharu.kotatsu.parsers.ParsersBundle
 import org.koitharu.kotatsu.parsers.SourceConfigMock
 import org.koitharu.kotatsu.parsers.bitmap.Bitmap
 import org.koitharu.kotatsu.parsers.config.MangaSourceConfig
+import org.koitharu.kotatsu.parsers.core.ParsersBundleImpl
 import org.koitharu.kotatsu.parsers.exception.AuthRequiredException
 import org.koitharu.kotatsu.parsers.exception.ParseException
 import org.koitharu.kotatsu.parsers.model.ContentRating
@@ -65,6 +67,8 @@ internal class CommunityContractAndHelpersTest {
 
 		val context: MangaLoaderContext = object : MangaLoaderContext() {
 			override val cookieJar = InMemoryCookieJar()
+			override val parsers: ParsersBundle
+				get() = ParsersBundleImpl
 			override val httpClient: OkHttpClient = OkHttpClient.Builder()
 				.cookieJar(cookieJar)
 				.addInterceptor { chain ->

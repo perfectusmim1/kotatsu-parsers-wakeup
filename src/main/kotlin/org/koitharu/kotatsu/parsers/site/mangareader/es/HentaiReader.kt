@@ -93,28 +93,5 @@ internal class HentaiReader(context: MangaLoaderContext) :
 		}
 		return parseInfo(docs, manga, chapters)
 	}
-
-	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		val chapterUrl = chapter.url.toAbsoluteUrl(domain)
-		val docs = webClient.httpGet(chapterUrl).parseHtml()
-		val script = docs.selectFirstOrThrow(selectTestScript)
-		val images = JSONObject(script.data().substringAfter('(').substringBeforeLast(')').replace(", ] }]", " ] }]"))
-			.getJSONArray("sources")
-			.getJSONObject(0)
-			.getJSONArray("images")
-
-		val pages = ArrayList<MangaPage>(images.length())
-		for (i in 0 until images.length()) {
-			pages.add(
-				MangaPage(
-					id = generateUid(images.getString(i)),
-					url = images.getString(i),
-					preview = null,
-					source = source,
-				),
-			)
-		}
-		return pages
-	}
 }
 

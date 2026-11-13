@@ -19,6 +19,13 @@ internal class MangaDna(context: MangaLoaderContext) :
 	override val selectDesc = "div.dsct"
 	override val selectChapter = "li.a-h"
 
+	override val availableSortOrders: Set<SortOrder> = java.util.EnumSet.of(
+		SortOrder.UPDATED,
+		SortOrder.POPULARITY,
+		SortOrder.ALPHABETICAL,
+		SortOrder.RATING,
+	)
+
 	override suspend fun getFilterOptions() = super.getFilterOptions().copy(
 		availableStates = emptySet(),
 		availableContentRating = emptySet(),

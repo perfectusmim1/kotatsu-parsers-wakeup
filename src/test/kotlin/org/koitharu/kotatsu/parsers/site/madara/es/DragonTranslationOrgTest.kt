@@ -11,8 +11,10 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.ParsersBundle
 import org.koitharu.kotatsu.parsers.SourceConfigMock
 import org.koitharu.kotatsu.parsers.bitmap.Bitmap
+import org.koitharu.kotatsu.parsers.core.ParsersBundleImpl
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaListFilter
@@ -136,6 +138,8 @@ internal class DragonTranslationOrgTest {
 		private val responder: (path: String, query: String?) -> String,
 	) : MangaLoaderContext() {
 		override val cookieJar: CookieJar = CookieJar.NO_COOKIES
+		override val parsers: ParsersBundle
+			get() = ParsersBundleImpl
 		override val httpClient: OkHttpClient = OkHttpClient.Builder()
 			.addInterceptor { chain ->
 				val req = chain.request()

@@ -24,6 +24,13 @@ internal class MangaDass(context: MangaLoaderContext) :
 		searchPaginator.firstPage = 1
 	}
 
+	override val availableSortOrders: Set<SortOrder> = java.util.EnumSet.of(
+		SortOrder.UPDATED,
+		SortOrder.POPULARITY,
+		SortOrder.ALPHABETICAL,
+		SortOrder.RATING,
+	)
+
 	override suspend fun getFilterOptions() = super.getFilterOptions().copy(
 		availableStates = emptySet(),
 		availableContentRating = emptySet(),
@@ -60,9 +67,8 @@ internal class MangaDass(context: MangaLoaderContext) :
 
 					append("orderby=")
 					when (order) {
-						SortOrder.POPULARITY -> append("views")
+						SortOrder.POPULARITY -> append("trending")
 						SortOrder.UPDATED -> append("latest")
-						SortOrder.NEWEST -> append("new-manga")
 						SortOrder.ALPHABETICAL -> append("alphabet")
 						SortOrder.RATING -> append("rating")
 						else -> append("latest")

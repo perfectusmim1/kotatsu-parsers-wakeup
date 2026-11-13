@@ -25,6 +25,13 @@ internal class Manhwa18Cc(context: MangaLoaderContext) :
 		searchPaginator.firstPage = 1
 	}
 
+	override val availableSortOrders: Set<SortOrder> = EnumSet.of(
+		SortOrder.UPDATED,
+		SortOrder.POPULARITY,
+		SortOrder.ALPHABETICAL,
+		SortOrder.RATING,
+	)
+
 	override suspend fun getFilterOptions() = super.getFilterOptions().copy(
 		availableStates = emptySet(),
 		availableContentRating = emptySet(),
