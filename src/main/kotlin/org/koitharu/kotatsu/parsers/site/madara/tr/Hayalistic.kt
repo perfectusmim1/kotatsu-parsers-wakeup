@@ -7,6 +7,6 @@ import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
 
 @MangaSourceParser("HAYALISTIC", "Hayalistic", "tr")
 internal class Hayalistic(context: MangaLoaderContext) :
-	MadaraParser(context, MangaParserSource.HAYALISTIC, "hayalistic.com.tr", 24) {
-	override val datePattern = "dd/MM/yyyy"
+	MadaraParser(context, MangaParserSource.HAYALISTIC, "hayalistic.site", 16) {
+	override val datePattern = "d MMMM yyyy"
 }

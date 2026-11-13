@@ -5,6 +5,7 @@ import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
+import org.koitharu.kotatsu.parsers.exception.AuthRequiredException
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
 import java.text.DateFormat
@@ -13,26 +14,29 @@ import java.util.*
 
 @MangaSourceParser("TRWEBTOON", "TrWebtoon", "tr")
 internal class TrWebtoon(context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.TRWEBTOON, pageSize = 21) {
+	PagedMangaParser(context, MangaParserSource.TRWEBTOON, pageSize = 24) {
 
-	override val configKeyDomain: ConfigKey.Domain = ConfigKey.Domain("trwebtoon.com")
+	override val configKeyDomain: ConfigKey.Domain = ConfigKey.Domain("trmanga.com")
 
 	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
 		super.onCreateConfig(keys)
 		keys.add(userAgentKey)
 	}
 
-	override val availableSortOrders: Set<SortOrder> =
-		EnumSet.of(
-			SortOrder.POPULARITY,
-			SortOrder.POPULARITY_ASC,
-			SortOrder.ALPHABETICAL,
-			SortOrder.ALPHABETICAL_DESC,
-			SortOrder.UPDATED,
-		)
+	override val availableSortOrders: Set<SortOrder> = EnumSet.of(
+		SortOrder.UPDATED,
+		SortOrder.POPULARITY,
+		SortOrder.RATING,
+		SortOrder.NEWEST,
+		SortOrder.NEWEST_ASC,
+		SortOrder.ALPHABETICAL,
+		SortOrder.ALPHABETICAL_DESC,
+	)
 
 	override val filterCapabilities: MangaListFilterCapabilities
 		get() = MangaListFilterCapabilities(
+			isMultipleTagsSupported = true,
+			isTagsExclusionSupported = true,
 			isSearchSupported = true,
 			isSearchWithFiltersSupported = true,
 		)
@@ -43,117 +47,85 @@ internal class TrWebtoon(context: MangaLoaderContext) :
 	)
 
 	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-		if (order == SortOrder.UPDATED) {
-			if (filter.tags.isNotEmpty() || filter.states.isNotEmpty() || filter.query != null) {
-				throw IllegalArgumentException("Sorting by update with filters is not supported by this source.")
+		val url = urlBuilder()
+			.addPathSegment("webtoon-listesi")
+			.addQueryParameter("page", page.toString())
+			.apply {
+				filter.query?.trim()?.nullIfEmpty()?.let {
+					addQueryParameter("q", it)
+				}
+				if (filter.tags.isNotEmpty()) {
+					addQueryParameter("genre", filter.tags.joinToString(",") { it.key })
+				}
+				if (filter.tagsExclude.isNotEmpty()) {
+					addQueryParameter("haric", filter.tagsExclude.joinToString(",") { it.key })
+				}
+				filter.states.oneOrThrowIfMany()?.let { state ->
+					when (state) {
+						MangaState.ONGOING -> "continues"
+						MangaState.FINISHED -> "complated"
+						else -> null
+					}?.let { addQueryParameter("status", it) }
+				}
+				if (filter.tags.isNotEmpty() || filter.tagsExclude.isNotEmpty() || filter.states.isNotEmpty()) {
+					addQueryParameter("f", "1")
+				}
+				val (sortKey, sortType) = when (order) {
+					SortOrder.UPDATED -> "updated" to "DESC"
+					SortOrder.POPULARITY -> "views" to "DESC"
+					SortOrder.RATING -> "rating" to "DESC"
+					SortOrder.NEWEST -> "released" to "DESC"
+					SortOrder.NEWEST_ASC -> "released" to "ASC"
+					SortOrder.ALPHABETICAL -> "name" to "ASC"
+					SortOrder.ALPHABETICAL_DESC -> "name" to "DESC"
+					else -> "views" to "DESC"
+				}
+				addQueryParameter("sort", sortKey)
+				addQueryParameter("short_type", sortType)
 			}
-			val url = buildString {
-				append("https://")
-				append(domain)
-				append("/son-eklenenler?page=")
-				append(page.toString())
-			}
-			return parseMangaListUpdated(webClient.httpGet(url).parseHtml())
-		} else {
-			val url = buildString {
-				append("https://")
-				append(domain)
-				append("/webtoon-listesi?page=")
-				append(page.toString())
+			.build()
 
-				filter.query?.let {
-					append("&q=")
-					append(filter.query.urlEncoded())
-				}
-
-				filter.tags.oneOrThrowIfMany()?.let {
-					append("&genre=")
-					append(it.key)
-				}
-
-				filter.states.oneOrThrowIfMany()?.let {
-					append("&status=")
-					append(
-						when (it) {
-							MangaState.ONGOING -> "continues"
-							MangaState.FINISHED -> "complated"
-							else -> ""
-						},
-					)
-				}
-
-				append("&sort=")
-				when (order) {
-					SortOrder.POPULARITY -> append("views&short_type=DESC")
-					SortOrder.POPULARITY_ASC -> append("views&short_type=ASC")
-					SortOrder.ALPHABETICAL -> append("name&short_type=ASC")
-					SortOrder.ALPHABETICAL_DESC -> append("name&short_type=DESC")
-					else -> append("views&short_type=DESC")
-				}
-			}
-
-			return parseMangaList(webClient.httpGet(url).parseHtml())
-		}
+		return parseMangaList(webClient.httpGet(url).parseHtml())
 	}
-
 
 	private fun parseMangaList(doc: Document): List<Manga> {
-		return doc.select(".row .col-xl-4 .card-body").map { li ->
-			val href = li.selectFirstOrThrow("a").attrAsRelativeUrl("href")
+		return doc.select("main div.grid a.group[href^='/webtoon/']").map { a ->
+			val href = a.attrAsRelativeUrl("href")
+			val ratingValue = a.select("span")
+				.lastOrNull { it.selectFirst("use[href$=#star]") != null }
+				?.text()
+				?.trim()
+				?.toFloatOrNull()
+				?.div(5f)
+				?: RATING_UNKNOWN
+			val isAdult = a.select("span.badge").any { it.text().contains("16+") }
 			Manga(
 				id = generateUid(href),
 				url = href,
 				publicUrl = href.toAbsoluteUrl(domain),
-				coverUrl = li.selectFirst("img")?.src(),
-				title = li.selectFirst(".table-responsive a")?.text().orEmpty(),
+				coverUrl = a.selectFirst("img")?.src(),
+				title = a.attrOrNull("title")
+					?: a.selectFirst("span.line-clamp-2")?.textOrNull()
+					?: a.parseFailed("Title not found"),
 				altTitles = emptySet(),
-				rating = li.selectFirst(".row .col-xl-4 .mt-2 .my-1 .text-muted")?.text()?.substringBefore("/")
-					?.toFloatOrNull()?.div(5f) ?: RATING_UNKNOWN,
+				rating = ratingValue,
 				tags = emptySet(),
 				authors = emptySet(),
-				state = when (doc.selectLast(".row .col-xl-4 .mt-2 .rounded-pill")?.text()) {
-					"Devam Ediyor", "Güncel" -> MangaState.ONGOING
-					"Tamamlandı" -> MangaState.FINISHED
-					else -> null
-				},
+				state = parseState(a.selectFirst("span[data-cover-ov]")?.text()),
 				source = source,
-				contentRating = sourceContentRating,
-			)
-		}
-	}
-
-	private fun parseMangaListUpdated(doc: Document): List<Manga> {
-		return doc.select(".page-content div.bslist_item").map { li ->
-			val href = li.selectFirstOrThrow("a").attrAsRelativeUrl("href")
-			Manga(
-				id = generateUid(href),
-				url = href,
-				publicUrl = href.toAbsoluteUrl(domain),
-				coverUrl = li.selectFirst(".figure img")?.src(),
-				title = li.selectFirst(".title")?.text().orEmpty(),
-				altTitles = emptySet(),
-				rating = RATING_UNKNOWN,
-				tags = emptySet(),
-				authors = emptySet(),
-				state = when (doc.selectFirst("d-inline .badge")?.text()) {
-					"Devam Ediyor", "Güncel" -> MangaState.ONGOING
-					"Tamamlandı" -> MangaState.FINISHED
-					else -> null
-				},
-				source = source,
-				contentRating = if (isNsfwSource) ContentRating.ADULT else null,
+				contentRating = if (isAdult) ContentRating.ADULT else sourceContentRating,
 			)
 		}
 	}
 
 	private suspend fun fetchAvailableTags(): Set<MangaTag> {
-		val tags =
-			webClient.httpGet("https://$domain/webtoon-listesi").parseHtml().requireElementById("collapseExample")
-				.select(".pt-12 a").drop(1)
-		return tags.mapToSet { a ->
+		val doc = webClient.httpGet("https://$domain/webtoon-listesi").parseHtml()
+		return doc.requireElementById("wlGenres").select("button[data-slug]").mapNotNullToSet { btn ->
+			val key = btn.attrOrNull("data-slug") ?: return@mapNotNullToSet null
+			val title = btn.attrOrNull("data-name") ?: btn.textOrNull() ?: return@mapNotNullToSet null
 			MangaTag(
-				key = a.attr("href").substringAfterLast("genre=").substringBefore("&sort"),
-				title = a.text(),
+				key = key,
+				title = title.toTitleCase(sourceLocale),
 				source = source,
 			)
 		}
@@ -161,33 +133,68 @@ internal class TrWebtoon(context: MangaLoaderContext) :
 
 	override suspend fun getDetails(manga: Manga): Manga {
 		val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
+		var altTitles = manga.altTitles
+		var authors = manga.authors
+		var state = manga.state
+		for ((dt, dd) in doc.select("dl dt").zip(doc.select("dl dd"))) {
+			when (dt.text().trim()) {
+				"Diğer isimler" -> {
+					altTitles = dd.text().split(',')
+						.mapNotNullToSet { it.trim().nullIfEmpty() }
+				}
+
+				"Yazar" -> {
+					val linked = dd.select("a").mapNotNullToSet { it.textOrNull() }
+					authors = linked.ifEmpty {
+						dd.text().split(',').mapNotNullToSet { it.trim().nullIfEmpty() }
+					}
+				}
+
+				"Durum" -> {
+					state = parseState(dd.text()) ?: state
+				}
+			}
+		}
+
+		val tags = doc.select("section.wt-hero a[href^='/tur/']").mapNotNullToSet { a ->
+			val key = a.attr("href").removeSuffix("/").substringAfterLast('/')
+			val title = a.textOrNull() ?: return@mapNotNullToSet null
+			if (key.isEmpty()) return@mapNotNullToSet null
+			MangaTag(
+				key = key,
+				title = title.toTitleCase(sourceLocale),
+				source = source,
+			)
+		}
+
+		val dotDateFormat = SimpleDateFormat("dd.MM.yyyy", sourceLocale)
+		val slashDateFormat = SimpleDateFormat("dd/MM/yyyy", sourceLocale)
+
 		return manga.copy(
-			tags = doc.body().select("li.movie__year a").mapToSet { a ->
-				MangaTag(
-					key = a.attr("href").substringAfterLast('='),
-					title = a.text(),
-					source = source,
-				)
-			},
-			description = doc.select("p.movie__plot").html(),
-			state = when (doc.selectFirst(".movie__credits span.rounded-pill")?.text()) {
-				"Devam Ediyor", "Güncel" -> MangaState.ONGOING
-				"Tamamlandı" -> MangaState.FINISHED
-				else -> null
-			},
-			chapters = doc.requireElementById("chapters").select("tbody tr").mapChapters(reversed = true) { i, tr ->
-				val url = tr.selectFirstOrThrow("a").attrAsRelativeUrl("href")
+			title = doc.selectFirst("h1#wt-title")?.textOrNull() ?: manga.title,
+			coverUrl = doc.selectFirst("img.wt-cover")?.src() ?: manga.coverUrl,
+			altTitles = altTitles,
+			authors = authors,
+			tags = tags,
+			description = doc.selectFirst("#wtiDesc")?.html(),
+			state = state,
+			chapters = doc.select("ol#chapters > li.wt-ch").mapChapters(reversed = true) { i, li ->
+				val a = li.selectFirst("a") ?: return@mapChapters null
+				val url = a.attrAsRelativeUrl("href")
+				val number = li.attrOrNull("data-chapter")?.toFloatOrNull() ?: (i + 1f)
+				val chTitle = a.selectFirst(".wt-ch-t")?.textOrNull()
+					?.takeUnless { it.equals("Bölüm", ignoreCase = true) }
+				val metaEl = li.selectFirst(".wt-ch-m")
+				val scanlator = metaEl?.selectFirst("a.fs-chip")?.ownText()?.trim()?.nullIfEmpty()
+				val dateText = metaEl?.ownText()?.trim()
 				MangaChapter(
 					id = generateUid(url),
-					title = tr.selectFirst("a")?.textOrNull(),
-					number = i + 1f,
+					title = chTitle,
+					number = number,
 					volume = 0,
 					url = url,
-					scanlator = null,
-					uploadDate = parseChapterDate(
-						SimpleDateFormat("dd/MM/yyyy", sourceLocale),
-						tr.selectLast("td")?.selectFirst("span")?.text(),
-					),
+					scanlator = scanlator,
+					uploadDate = parseChapterDate(dotDateFormat, slashDateFormat, dateText),
 					branch = null,
 					source = source,
 				)
@@ -195,8 +202,17 @@ internal class TrWebtoon(context: MangaLoaderContext) :
 		)
 	}
 
-	private fun parseChapterDate(dateFormat: DateFormat, date: String?): Long {
-		val d = date?.lowercase() ?: return 0
+	private fun parseState(text: String?): MangaState? = when (text?.trim()) {
+		"Devam Ediyor", "Güncel" -> MangaState.ONGOING
+		"Tamamlandı" -> MangaState.FINISHED
+		"Bırakıldı" -> MangaState.ABANDONED
+		"Durduruldu", "Ara Verildi" -> MangaState.PAUSED
+		else -> null
+	}
+
+	private fun parseChapterDate(dotFormat: DateFormat, slashFormat: DateFormat, date: String?): Long {
+		val d = date?.trim()?.lowercase(sourceLocale) ?: return 0L
+		if (d.isEmpty()) return 0L
 		return when {
 			d.startsWith("saat ") -> Calendar.getInstance().apply {
 				set(Calendar.HOUR_OF_DAY, 0)
@@ -205,28 +221,37 @@ internal class TrWebtoon(context: MangaLoaderContext) :
 				set(Calendar.MILLISECOND, 0)
 			}.timeInMillis
 
-			d.endsWith(" önce") -> parseRelativeDate(date)
+			d.endsWith(" önce") -> parseRelativeDate(d)
 
-			else -> dateFormat.parseSafe(date)
+			else -> dotFormat.parseSafe(date).takeIf { it != 0L } ?: slashFormat.parseSafe(date)
 		}
 	}
 
 	private fun parseRelativeDate(date: String): Long {
-		val number = Regex("""(\d+)""").find(date)?.value?.toIntOrNull() ?: return 0
+		val number = Regex("""(\d+)""").find(date)?.value?.toIntOrNull() ?: return 0L
 		val cal = Calendar.getInstance()
 		return when {
+			WordSet("saniye").anyWordIn(date) -> cal.apply { add(Calendar.SECOND, -number) }.timeInMillis
+			WordSet("dakika").anyWordIn(date) -> cal.apply { add(Calendar.MINUTE, -number) }.timeInMillis
 			WordSet("saat").anyWordIn(date) -> cal.apply { add(Calendar.HOUR, -number) }.timeInMillis
 			WordSet("gün").anyWordIn(date) -> cal.apply { add(Calendar.DAY_OF_MONTH, -number) }.timeInMillis
 			WordSet("hafta").anyWordIn(date) -> cal.apply { add(Calendar.WEEK_OF_YEAR, -number) }.timeInMillis
 			WordSet("ay").anyWordIn(date) -> cal.apply { add(Calendar.MONTH, -number) }.timeInMillis
 			WordSet("yıl").anyWordIn(date) -> cal.apply { add(Calendar.YEAR, -number) }.timeInMillis
-			else -> 0
+			else -> 0L
 		}
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml().requireElementById("images")
-		return doc.select("img").map { img ->
+		val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
+		val imgs = doc.getElementById("images")?.select("img.reader-img, img").orEmpty()
+		if (imgs.isEmpty()) {
+			if (doc.html().contains("\"locked\":true")) {
+				throw AuthRequiredException(source)
+			}
+			doc.parseFailed("Images not found")
+		}
+		return imgs.map { img ->
 			val url = img.requireSrc().toRelativeUrl(domain)
 			MangaPage(
 				id = generateUid(url),

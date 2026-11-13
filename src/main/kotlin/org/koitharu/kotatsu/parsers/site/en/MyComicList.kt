@@ -10,9 +10,9 @@ import java.util.*
 
 @MangaSourceParser("MYCOMICLIST", "MyComicList", "en", ContentType.COMICS)
 internal class MyComicList(context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.MYCOMICLIST, 24) {
+	PagedMangaParser(context, MangaParserSource.MYCOMICLIST, 20) {
 
-	override val configKeyDomain = ConfigKey.Domain("mycomiclist.org")
+	override val configKeyDomain = ConfigKey.Domain("comichubfree.com")
 
 	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
 		super.onCreateConfig(keys)
@@ -42,7 +42,7 @@ internal class MyComicList(context: MangaLoaderContext) :
 			append(domain)
 			when {
 				!filter.query.isNullOrEmpty() -> {
-					append("/comic-search?key=")
+					append("/search-comic?key=")
 					append(filter.query.urlEncoded())
 				}
 
@@ -60,26 +60,27 @@ internal class MyComicList(context: MangaLoaderContext) :
 				}
 			}
 			if (page > 1) {
-				append("?page=")
+				append(if ('?' in this) "&page=" else "?page=")
 				append(page)
 			}
 		}
 
 		val doc = webClient.httpGet(url).parseHtml()
-		return doc.select("div.manga-box").map { div ->
-			val href = div.selectFirstOrThrow("a").attrAsRelativeUrl("href")
-			val img = div.selectFirst("img.lazyload")
+		return doc.select("div.cartoon-box").map { div ->
+			val link = div.selectFirst("h3 a") ?: div.selectFirstOrThrow("a")
+			val href = link.attrAsRelativeUrl("href")
+			val img = div.selectFirst("img.lazyload") ?: div.selectFirst("img")
 			Manga(
 				id = generateUid(href),
 				url = href,
 				publicUrl = href.toAbsoluteUrl(domain),
-				title = div.selectFirst("h3 a")?.text().orEmpty(),
+				title = link.text(),
 				altTitles = emptySet(),
 				authors = emptySet(),
 				tags = emptySet(),
 				rating = RATING_UNKNOWN,
 				contentRating = if (isNsfwSource) ContentRating.ADULT else null,
-				coverUrl = img?.attrAsAbsoluteUrlOrNull("data-src"),
+				coverUrl = img?.src(),
 				state = null,
 				source = source,
 			)
@@ -88,9 +89,9 @@ internal class MyComicList(context: MangaLoaderContext) :
 
 	override suspend fun getDetails(manga: Manga): Manga {
 		val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
-		val author = doc.selectFirst("td:contains(Author:) + td")?.textOrNull()
+		val author = doc.selectFirst("dt.movie-dt:contains(Author:) + dd")?.textOrNull()
 		return manga.copy(
-			tags = doc.select("td:contains(Genres:) + td a").mapToSet { a ->
+			tags = doc.select("dt.movie-dt:contains(Genres:) + dd a").mapToSet { a ->
 				MangaTag(
 					key = a.attr("href").substringAfterLast('/').substringBefore("-comic"),
 					title = a.text().toTitleCase(sourceLocale),
@@ -98,14 +99,14 @@ internal class MyComicList(context: MangaLoaderContext) :
 				)
 			},
 			authors = setOfNotNull(author),
-			state = when (doc.selectFirst("td:contains(Status:) + td a")?.text()?.lowercase()) {
+			state = when (doc.selectFirst("dt.movie-dt:contains(Status:) + dd a")?.text()?.lowercase()) {
 				"ongoing" -> MangaState.ONGOING
 				"completed" -> MangaState.FINISHED
 				else -> null
 			},
-			description = doc.selectFirst("div.manga-desc p.pdesc")?.html(),
-			chapters = doc.select("ul.basic-list li").mapChapters(reversed = true) { i, li ->
-				val a = li.selectFirst("a.ch-name") ?: return@mapChapters null
+			description = doc.selectFirst("#film-content")?.html(),
+			chapters = doc.select("tbody#list tr").mapChapters(reversed = true) { i, tr ->
+				val a = tr.selectFirst("td a") ?: return@mapChapters null
 				val href = a.attrAsRelativeUrl("href")
 				val name = a.text()
 
@@ -141,7 +142,7 @@ internal class MyComicList(context: MangaLoaderContext) :
 
 	private suspend fun fetchAvailableTags(): Set<MangaTag> {
 		val doc = webClient.httpGet("https://$domain").parseHtml()
-		return doc.select("div.cr-anime-box.genre-box a.genre-name").mapToSet { a ->
+		return doc.select("div.right-box ul.tag-box a.tag-link").mapToSet { a ->
 			val href = a.attr("href")
 			val key = href.substringAfterLast('/').substringBefore("-comic")
 			MangaTag(

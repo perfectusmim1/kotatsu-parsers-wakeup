@@ -11,6 +11,8 @@ import org.koitharu.kotatsu.parsers.util.insertCookies
 internal class HhentaiFr(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.HHENTAIFR, "hhentai.fr") {
 
+	override val withoutAjax = true
+
 	init {
 		context.cookieJar.insertCookies(
 			domain,

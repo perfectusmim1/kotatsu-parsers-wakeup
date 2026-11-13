@@ -3,12 +3,10 @@ package org.koitharu.kotatsu.parsers.site.madara.tr
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
-import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
-import org.koitharu.kotatsu.parsers.Broken
+import org.koitharu.kotatsu.parsers.site.mangareader.MangaReaderParser
 
-@Broken
 @MangaSourceParser("NABISCANS", "NabiScans", "tr")
 internal class NabiScans(context: MangaLoaderContext) :
-	MadaraParser(context, MangaParserSource.NABISCANS, "nabiscans.com") {
-	override val datePattern = "d MMMM yyyy"
+	MangaReaderParser(context, MangaParserSource.NABISCANS, "www.nabicix.com", 10, 10) {
+	override val datePattern = "MMMM d, yyyy"
 }
