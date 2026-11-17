@@ -25,6 +25,8 @@ internal class AfroditScans(context: MangaLoaderContext) :
 		SortOrder.UPDATED,
 	)
 
+	override val defaultSortOrder: SortOrder = SortOrder.NEWEST
+
 	override val filterCapabilities: MangaListFilterCapabilities
 		get() = MangaListFilterCapabilities(
 			isSearchSupported = true,
@@ -145,7 +147,7 @@ internal class AfroditScans(context: MangaLoaderContext) :
 			contentRating = if (isAdult) ContentRating.ADULT else manga.contentRating,
 			tags = tags,
 			state = parseState(series.optInt("status", -1)) ?: manga.state,
-			description = series.getStringOrNull("description"),
+			description = series.getStringOrNull("description").orEmpty(),
 			chapters = chapters,
 		)
 	}

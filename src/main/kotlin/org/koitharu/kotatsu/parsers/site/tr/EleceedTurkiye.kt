@@ -92,18 +92,24 @@ internal class EleceedTurkiye(context: MangaLoaderContext) :
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.UPDATED)
 
 	override val filterCapabilities: MangaListFilterCapabilities
-		get() = MangaListFilterCapabilities()
+		get() = MangaListFilterCapabilities(
+			isSearchSupported = true,
+		)
 
 	override suspend fun getFilterOptions() = MangaListFilterOptions()
 
 	override suspend fun getList(order: SortOrder, filter: MangaListFilter): List<Manga> {
-		val seriesUrl = "https://$domain/manga/eleceed/"
+		if (!filter.query.isNullOrBlank() && !"Eleceed".containsNormalizedQuery(filter.query)) {
+			return emptyList()
+		}
+		val relativeUrl = "/manga/eleceed/"
+		val seriesUrl = relativeUrl.toAbsoluteUrl(domain)
 		val raw = webClient.httpGet(seriesUrl).parseHtml()
 		val coverUrl = raw.selectFirst("div.thumb img")?.src()?.nullIfEmpty()
 		return listOf(
 			Manga(
 				id = generateUid(mangaId),
-				url = seriesUrl,
+				url = relativeUrl,
 				publicUrl = seriesUrl,
 				coverUrl = coverUrl,
 				title = "Eleceed",
@@ -119,22 +125,22 @@ internal class EleceedTurkiye(context: MangaLoaderContext) :
 	}
 
 	override suspend fun getDetails(manga: Manga): Manga {
-		val doc = webClient.httpGet(manga.url).parseHtml()
+		val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
 		return manga.copy(
 			description = doc.selectFirst("div.entry-content")?.html(),
 			tags = setOf(
-				MangaTag("Aksiyon", "", source),
-				MangaTag("Drama", "", source),
-				MangaTag("Komedi", "", source),
-				MangaTag("Süper Güçler", "", source),
+				MangaTag(title = "Aksiyon", key = "3", source = source),
+				MangaTag(title = "Drama", key = "5", source = source),
+				MangaTag(title = "Komedi", key = "27", source = source),
+				MangaTag(title = "Süper Güçler", key = "75", source = source),
 			),
 			chapters = doc.select("div.eph-num").mapChapters(reversed = true) { _, div ->
-				val href = div.selectFirstOrThrow("a").attr("href")
+				val href = div.selectFirstOrThrow("a").attrAsRelativeUrl("href")
 				val title = div.selectFirst("span.chapternum")?.text() ?: "Not found"
 				MangaChapter(
 					id = generateUid(href),
 					title = title,
-					number = title?.let { Regex("\\d+").find(it)?.value?.toFloatOrNull() } ?: 0f,
+					number = chapterNumberRegex.find(title)?.value?.replace(',', '.')?.toFloatOrNull() ?: 0f,
 					url = href,
 					uploadDate = dateFormat.parseSafe(div.selectFirst("span.chapterdate")?.text()),
 					scanlator = null,
@@ -147,7 +153,7 @@ internal class EleceedTurkiye(context: MangaLoaderContext) :
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		val doc = webClient.httpGet(chapter.url).parseHtml()
+		val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
 		val scriptData = doc.select("script")
 			.firstOrNull { it.data().contains("ts_reader.run(") }
 			?.data()
@@ -174,6 +180,7 @@ internal class EleceedTurkiye(context: MangaLoaderContext) :
 	}
 
 	private val mangaId = "eleceed"
+	private val chapterNumberRegex = Regex("""\d+(?:[.,]\d+)?""")
 	private val dateFormat = SimpleDateFormat("MMMM d, yyyy", Locale("tr"))
 
 	override suspend fun getMangaCommunityInfo(

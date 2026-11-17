@@ -121,6 +121,7 @@ internal class BatCave(context: MangaLoaderContext) :
 				timeout = timeoutMs,
 			)
 		} catch (e: Exception) {
+			e.rethrowIfCritical()
 			throw ParseException("Failed to capture webview URLs", initialUrl, e)
 		}
 
@@ -141,20 +142,32 @@ internal class BatCave(context: MangaLoaderContext) :
 		}
 
 		if (allowBrowserAction) {
-			context.requestBrowserAction(this, finalUrl)
-			throw ParseException("Browser action requested for Cloudflare bypass", finalUrl)
+			requestCloudflareVerification(finalUrl)
 		}
 
 		throw ParseException("Failed to load page via webview", finalUrl)
 	}
 
+	private fun requestCloudflareVerification(url: String): Nothing {
+		try {
+			context.requestCloudflareVerification(this, url)
+		} catch (e: UnsupportedOperationException) {
+			throw ParseException("Cloudflare verification is required", url, e)
+		}
+	}
+
 	private suspend fun tryHttpDocument(url: String): Document? {
-		val response = runCatching { webClient.httpGet(url) }.getOrNull() ?: return null
+		val response = try {
+			webClient.httpGet(url)
+		} catch (e: Exception) {
+			e.rethrowIfCritical()
+			return null
+		}
 		return response.use { res ->
 			if (res.request.url.isDleGuard()) {
 				return null
 			}
-			val doc = runCatching { res.parseHtml() }.getOrNull() ?: return null
+			val doc = runCatchingCancellable { res.parseHtml() }.getOrNull() ?: return null
 
 			// Check for successful BatCave content first
 			if (hasValidBatCaveContent(doc)) {
@@ -164,7 +177,7 @@ internal class BatCave(context: MangaLoaderContext) :
 			// Only reject if it's clearly an active Cloudflare challenge
 			val html = doc.outerHtml()
 			if (isActiveCloudflareChallenge(html)) {
-				return null
+				requestCloudflareVerification(url)
 			}
 
 			// If we're not sure, allow the page through
@@ -414,14 +427,14 @@ internal class BatCave(context: MangaLoaderContext) :
 				if (error != null) throw error
 				val doc = checkNotNull(response).parseHtml()
 				if (isActiveCloudflareChallenge(doc.outerHtml())) {
-					context.requestBrowserAction(this, url)
+					requestCloudflareVerification(url)
 				}
 				return doc
 			}
 			response?.close()
 			// The guard can only be solved by loading a page, POST requests are replayed after solving it on the home page
 			if (guardSolved || !solveDleGuard(if (form == null) url else "https://$domain/")) {
-				context.requestBrowserAction(this, url)
+				requestCloudflareVerification(url)
 			}
 			guardSolved = true
 		}

@@ -82,25 +82,29 @@ internal class MadaraDex(context: MangaLoaderContext) :
             return doc
         }
 
-        context.requestBrowserAction(this, url)
+        requestCloudflareVerification(url)
+    }
 
-        doc = fetchChapterDocument(url)
-        val resolved = doc ?: throw ParseException(
-            "Cloudflare verification is still required. Please open the chapter in the in-app browser and retry.",
-            url,
-        )
-        if (isCloudflareDocument(resolved)) {
+    private fun requestCloudflareVerification(url: String): Nothing {
+        try {
+            context.requestCloudflareVerification(this, url)
+        } catch (e: UnsupportedOperationException) {
             throw ParseException(
                 "Cloudflare verification is still required. Please open the chapter in the in-app browser and retry.",
                 url,
+                e,
             )
         }
-        return resolved
     }
 
     private suspend fun fetchChapterDocument(url: String): Document? {
-        val response = runCatching { webClient.httpGet(url) }.getOrElse { return null }
-        return response.use { res -> runCatching { res.parseHtml() }.getOrNull() }
+        val response = try {
+            webClient.httpGet(url)
+        } catch (e: Exception) {
+            e.rethrowIfCritical()
+            return null
+        }
+        return response.use { res -> runCatchingCancellable { res.parseHtml() }.getOrNull() }
     }
 
     private fun isCloudflareDocument(doc: Document): Boolean {

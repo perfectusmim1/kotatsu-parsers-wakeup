@@ -123,7 +123,7 @@ internal class DemonicScans(context: MangaLoaderContext) :
             else -> "div#advanced-content > div.advanced-element"
         }
 
-        return doc.select(selector).map { element ->
+        return doc.select(selector).mapNotNull { element ->
             when {
                 isNewest -> parseNewestManga(element)
                 else -> parseNormalManga(element, hasQuery)
@@ -131,23 +131,22 @@ internal class DemonicScans(context: MangaLoaderContext) :
         }
     }
 
-    private fun parseNewestManga(element: Element): Manga {
-        val info = element.selectFirst("div.updates-element-info")!!
-        val anchor = info.selectFirst("a")!!
-        val href = anchor.attr("href").let {
-            if (it.startsWith("http", ignoreCase = true)) it else "https://$domain${if (it.startsWith("/")) it else "/$it"}"
-        }
+    private fun parseNewestManga(element: Element): Manga? {
+        val info = element.selectFirst("div.updates-element-info") ?: return null
+        val anchor = info.selectFirst("a") ?: return null
+        val href = anchor.attrAsRelativeUrlOrNull("href") ?: return null
+        val title = anchor.attrOrNull("title")?.trim()?.nullIfEmpty()
+            ?: anchor.ownText().trim().nullIfEmpty()
+            ?: return null
         return Manga(
             id = generateUid(href),
-            title = anchor.ownText(),
+            title = title,
             altTitles = emptySet(),
             url = href,
-            publicUrl = href,
+            publicUrl = href.toAbsoluteUrl(domain),
             rating = RATING_UNKNOWN,
             contentRating = null,
-            coverUrl = element.selectFirst("div.thumb img")?.attr("src")?.let { url ->
-                if (url.startsWith("http", ignoreCase = true)) url else "https://$domain$url"
-            },
+            coverUrl = element.selectFirst("div.thumb img")?.attrAsAbsoluteUrlOrNull("src"),
             tags = emptySet(),
             state = null,
             authors = emptySet(),
@@ -155,25 +154,22 @@ internal class DemonicScans(context: MangaLoaderContext) :
         )
     }
 
-    private fun parseNormalManga(element: Element, hasQuery: Boolean): Manga {
-        val anchor = if (hasQuery) element else element.selectFirst("a")!!
-        val href = anchor.attr("href").let {
-            if (it.startsWith("http", ignoreCase = true)) it else "https://$domain${if (it.startsWith("/")) it else "/$it"}"
-        }
+    private fun parseNormalManga(element: Element, hasQuery: Boolean): Manga? {
+        val anchor = (if (hasQuery) element else element.selectFirst("a")) ?: return null
+        val href = anchor.attrAsRelativeUrlOrNull("href") ?: return null
+        val title = (if (hasQuery)
+            element.selectFirst("div.seach-right > div")?.text()
+        else
+            element.selectFirst("h1")?.ownText())?.trim()?.nullIfEmpty() ?: return null
         return Manga(
             id = generateUid(href),
-            title = if (hasQuery)
-                element.selectFirst("div.seach-right > div")?.text().orEmpty()
-            else
-                element.selectFirst("h1")?.ownText().orEmpty(),
+            title = title,
             altTitles = emptySet(),
             url = href,
-            publicUrl = href,
+            publicUrl = href.toAbsoluteUrl(domain),
             rating = RATING_UNKNOWN,
             contentRating = null,
-            coverUrl = anchor.selectFirst("img")?.attr("src")?.let { url ->
-                if (url.startsWith("http", ignoreCase = true)) url else "https://$domain$url"
-            },
+            coverUrl = anchor.selectFirst("img")?.attrAsAbsoluteUrlOrNull("src"),
             tags = emptySet(),
             state = null,
             authors = emptySet(),
@@ -182,9 +178,9 @@ internal class DemonicScans(context: MangaLoaderContext) :
     }
 
     override suspend fun getDetails(manga: Manga): Manga {
-        val doc = webClient.httpGet(manga.url).parseHtml()
+        val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
         val info = doc.selectFirst("div#manga-info-container")
-        val title = info?.selectFirst("h1.big-fat-titles")?.ownText().orEmpty()
+        val title = info?.selectFirst("h1.big-fat-titles")?.ownText()?.trim()?.nullIfEmpty() ?: manga.title
         val thumbnail = info?.selectFirst("div#manga-page img")?.attrAsAbsoluteUrlOrNull("src")
         val genre = info?.select("div.genres-list > li")?.joinToString { it.text() } ?: ""
         val description = info?.selectFirst("div#manga-info-rightColumn > div > div.white-font")?.textOrNull()
@@ -198,9 +194,7 @@ internal class DemonicScans(context: MangaLoaderContext) :
 
         val chapters = doc.select("div#chapters-list a.chplinks").mapChapters(reversed = true) { i, el ->
             val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
-            val href = el.attr("href").let {
-                if (it.startsWith("http")) it else "https://$domain${if (it.startsWith("/")) it else "/$it"}"
-            }
+            val href = el.attrAsRelativeUrlOrNull("href") ?: return@mapChapters null
             val date = el.selectFirst("span")?.text()
             MangaChapter(
                 id = generateUid(href),
@@ -217,7 +211,7 @@ internal class DemonicScans(context: MangaLoaderContext) :
 
         return manga.copy(
             title = title,
-            coverUrl = thumbnail,
+            coverUrl = thumbnail ?: manga.coverUrl,
             tags = genre.split(", ").filter { it.isNotBlank() }.mapToSet {
                 MangaTag(title = it.lowercase().replace(" ", "-").toTitleCase(sourceLocale), key = it, source)
             },
@@ -229,7 +223,7 @@ internal class DemonicScans(context: MangaLoaderContext) :
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-        val doc = webClient.httpGet(chapter.url).parseHtml()
+        val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
         return doc.select("div > img.imgholder").map {
             val url = it.requireSrc()
             MangaPage(

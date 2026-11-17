@@ -6,19 +6,24 @@ import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.site.galleryadults.GalleryAdultsParser
-import org.koitharu.kotatsu.parsers.util.mapToSet
+import org.koitharu.kotatsu.parsers.util.attrOrNull
+import org.koitharu.kotatsu.parsers.util.mapNotNullToSet
+import org.koitharu.kotatsu.parsers.util.nullIfEmpty
 import org.koitharu.kotatsu.parsers.util.oneOrThrowIfMany
 import org.koitharu.kotatsu.parsers.util.parseHtml
 import org.koitharu.kotatsu.parsers.util.removeSuffix
+import org.koitharu.kotatsu.parsers.util.textOrNull
+import org.koitharu.kotatsu.parsers.util.toTitleCase
 import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.util.*
 
 @MangaSourceParser("HENTAIENVY", "HentaiEnvy", type = ContentType.HENTAI)
 internal class HentaiEnvy(context: MangaLoaderContext) :
 	GalleryAdultsParser(context, MangaParserSource.HENTAIENVY, "hentaienvy.com", pageSize = 24) {
-	override val selectGalleryLink = "a"
-	override val selectGalleryTitle = "div.title"
-	override val selectTags = ".tags_items"
+	override val selectGallery = "article.hnv-gallery-card"
+	override val selectGalleryLink = "a.hnv-gallery-card__cover, a"
+	override val selectGalleryTitle = ".hnv-gallery-card__title, div.title"
+	override val selectTags = "ul.hnv-legacy-taxonomy__items, .tags_items"
 	override val selectTag = ".hnv-gallery-entity-group:contains(Tags:) .hnv-gallery-entity-items"
 	override val selectAuthor = ".hnv-gallery-entity-group:contains(Artists:) .hnv-gallery-tag__name"
 	override val selectLanguageChapter = ".hnv-gallery-entity-group:contains(Languages:) .hnv-gallery-tag__name"
@@ -26,14 +31,20 @@ internal class HentaiEnvy(context: MangaLoaderContext) :
 	override val selectTotalPage = "[data-total-label]"
 	override val idImg = "readerImg"
 
-	override fun Element.parseTags() = select("a.hnv-gallery-tag, a").mapToSet {
+	override fun Element.parseTags() = select("a.hnv-gallery-tag, a.hnv-legacy-taxonomy-item__button, a").mapNotNullToSet {
 		val key = it.attr("href").removeSuffix('/').substringAfterLast('/')
-		val name = it.selectFirst(".hnv-gallery-tag__name")?.text() ?: it.html().substringBefore("<")
-		MangaTag(
-			key = key,
-			title = name,
-			source = source,
-		)
+		val name = it.selectFirst(".hnv-gallery-tag__name, .hnv-legacy-taxonomy-item__name")?.textOrNull()
+			?: it.attrOrNull("title")
+			?: it.html().substringBefore("<").trim().nullIfEmpty()
+		if (key.isEmpty() || name.isNullOrBlank()) {
+			null
+		} else {
+			MangaTag(
+				key = key,
+				title = name.toTitleCase(sourceLocale),
+				source = source,
+			)
+		}
 	}
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.UPDATED, SortOrder.POPULARITY)
@@ -58,7 +69,7 @@ internal class HentaiEnvy(context: MangaLoaderContext) :
 			append(domain)
 			when {
 				!filter.query.isNullOrEmpty() -> {
-					append("/search/?s_key=")
+					append("/search/?key=")
 					append(filter.query.urlEncoded())
 					append("&")
 				}

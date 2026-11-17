@@ -34,12 +34,15 @@ internal class Gafeland(context: MangaLoaderContext) :
 
 	override suspend fun getFilterOptions(): MangaListFilterOptions {
 		val doc = webClient.httpGet(urlBuilder().addPathSegment("seriler").addPathSegment("").build()).parseHtml()
-		val tags = doc.select("select[name=genre] option[value]").mapNotNullToSet { opt ->
-			val key = opt.attr("value").trim().takeIf { it.isNotEmpty() } ?: return@mapNotNullToSet null
-			val title = opt.text().trim().takeIf { it.isNotEmpty() } ?: return@mapNotNullToSet null
+		val seenTitles = HashSet<String>()
+		val tags = doc.select("select[name=genre] option[value]").mapNotNullTo(LinkedHashSet()) { opt ->
+			val key = opt.attr("value").trim().takeIf { it.isNotEmpty() } ?: return@mapNotNullTo null
+			val title = opt.text().trim().takeIf { it.isNotEmpty() }?.toTitleCase(sourceLocale)
+				?: return@mapNotNullTo null
+			if (!seenTitles.add(title.lowercase(sourceLocale))) return@mapNotNullTo null
 			MangaTag(
 				key = key,
-				title = title.toTitleCase(sourceLocale),
+				title = title,
 				source = source,
 			)
 		}

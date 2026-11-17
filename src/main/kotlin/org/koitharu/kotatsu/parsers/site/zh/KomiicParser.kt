@@ -29,6 +29,7 @@ import okhttp3.Request
 import kotlinx.coroutines.delay
 import org.koitharu.kotatsu.parsers.util.json.mapJSONNotNullToSet
 import org.koitharu.kotatsu.parsers.util.mapToSet
+import org.koitharu.kotatsu.parsers.util.rethrowIfCritical
 import org.koitharu.kotatsu.parsers.util.runCatchingCancellable
 
 @MangaSourceParser("KOMIIC", "Komiic", "zh")
@@ -584,9 +585,8 @@ internal class KomiicParser(context: MangaLoaderContext) :
         }.getOrElse { /* ignore and fallback to HTML */ }
         val doc = try {
             webClient.httpGet("https://$domain/comic/$comicId", getRequestHeaders()).parseHtml()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            e.rethrowIfCritical(rethrowNotFound = false)
             return null
         }
         // 优先从表单控件读取：input/select[name="sexyLevel"] 的值
@@ -804,9 +804,8 @@ internal class KomiicParser(context: MangaLoaderContext) :
         }
         val response = try {
             webClient.httpPost("https://${domain}/api/query".toHttpUrl(), body, getRequestHeaders())
-        } catch (e: CancellationException) {
-            throw e
         } catch (e: Exception) {
+            e.rethrowIfCritical()
             throw ParseException(
                 "Komiic 接口请求失败（可能被拦截或接口错误），请在浏览器打开主页以通过挑战页，然后回到应用重试",
                 "https://${domain}/",

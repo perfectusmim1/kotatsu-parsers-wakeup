@@ -121,15 +121,20 @@ internal class Manhwa210(context: MangaLoaderContext) : PagedMangaParser(context
 
 		val doc = webClient.httpGet(url).parseHtml()
 
-		return doc.select("div.grid div.relative").map { div ->
-			val href = div.selectFirst("a[href^=/manga/]")?.attrOrNull("href")
-				?: div.parseFailed("Cant find manga image!")
+		return doc.select("div.grid div.manga-vertical").mapNotNull { div ->
+			val href = div.selectFirst("a[href^=/manga/]")?.attrAsRelativeUrlOrNull("href")
+				?: return@mapNotNull null
+			val title = div.selectFirst("div.p-2 a.text-ellipsis")?.textOrNull()
+				?: div.selectFirst("a[href^=/manga/][title]")?.attrOrNull("title")
+				?: return@mapNotNull null
 			val coverUrl = div.selectFirst("div.cover")?.attr("style")
-				?.substringAfter("url('")?.substringBefore("')")
+				?.substringAfter("url('")?.substringBefore("')")?.nullIfEmpty()
+				?: div.selectFirst("div.cover")?.styleValueOrNull("background-image")
+					?.cssUrl()?.removeSurrounding("'")?.removeSurrounding("\"")?.nullIfEmpty()
 
 			Manga(
 				id = generateUid(href),
-				title = div.select("div.p-2 a.text-ellipsis").text(),
+				title = title,
 				altTitles = emptySet(),
 				url = href,
 				publicUrl = href.toAbsoluteUrl(domain),

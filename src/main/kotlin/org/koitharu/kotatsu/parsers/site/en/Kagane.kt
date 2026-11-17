@@ -166,7 +166,8 @@ internal class Kagane(context: MangaLoaderContext) :
                     }
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            e.rethrowIfCritical(rethrowNotFound = false)
             emptySet()
         }
     }
@@ -583,7 +584,7 @@ internal class Kagane(context: MangaLoaderContext) :
 
     private fun requestCloudflareVerification(url: String, cause: Throwable? = null): Nothing {
         try {
-            context.requestBrowserAction(this, url)
+            context.requestCloudflareVerification(this, url)
         } catch (e: UnsupportedOperationException) {
             throw ParseException(
                 "Cloudflare verification required. Open Kagane in WebView and retry.",
@@ -591,7 +592,6 @@ internal class Kagane(context: MangaLoaderContext) :
                 cause ?: e,
             )
         }
-        throw ParseException("Retry after Cloudflare verification.", url, cause)
     }
 
     private fun String.isCloudflareChallenge(): Boolean {

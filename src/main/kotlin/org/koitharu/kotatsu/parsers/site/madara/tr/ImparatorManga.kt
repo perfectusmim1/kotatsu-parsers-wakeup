@@ -63,7 +63,7 @@ internal class ImparatorManga(context: MangaLoaderContext) :
 
 	override suspend fun getFilterOptions(): MangaListFilterOptions {
 		val doc = webClient.httpGet("https://$domain/titles").parseHtml()
-		val tags = doc.select("[data-tristate-group=genre] [data-tristate-chip]").mapNotNullToSet { chip ->
+		val tags = doc.select("[data-tristate-group=genre] [data-tristate-chip]").mapNotNullTo(LinkedHashSet()) { chip ->
 			val key = chip.attr("data-slug").trim()
 			val title = chip.selectFirst(".filter-chip__label")?.textOrNull()?.toTitleCase(sourceLocale)
 			if (key.isEmpty() || title == null) {

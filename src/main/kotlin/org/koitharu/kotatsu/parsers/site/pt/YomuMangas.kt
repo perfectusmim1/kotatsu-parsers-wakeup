@@ -163,13 +163,13 @@ internal class YomuMangas(context: MangaLoaderContext) :
 		}
 
 		if (isCloudflareChallenge(httpDoc)) {
-			context.requestBrowserAction(this, chapterUrl)
+			requestCloudflareVerification(chapterUrl)
 		}
 
 		val jsHtml = loadChapterHtmlViaJs(chapterUrl)
 		if (jsHtml != null) {
 			if (isCloudflareChallenge(jsHtml)) {
-				context.requestBrowserAction(this, chapterUrl)
+				requestCloudflareVerification(chapterUrl)
 			}
 
 			val jsDoc = Jsoup.parse(jsHtml, chapterUrl)
@@ -180,6 +180,14 @@ internal class YomuMangas(context: MangaLoaderContext) :
 		}
 
 		throw ParseException("Cannot find chapter pages", chapterUrl)
+	}
+
+	private fun requestCloudflareVerification(url: String): Nothing {
+		try {
+			context.requestCloudflareVerification(this, url)
+		} catch (e: UnsupportedOperationException) {
+			throw ParseException("Cloudflare verification is required", url, e)
+		}
 	}
 
 	private fun parsePagesFromDocument(doc: Document): List<MangaPage> {

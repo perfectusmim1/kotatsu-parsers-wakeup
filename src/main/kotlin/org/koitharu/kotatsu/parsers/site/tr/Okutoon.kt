@@ -27,7 +27,7 @@ internal class Okutoon(context: MangaLoaderContext) :
 	MangaParserAuthProvider,
 	MangaSourceCommunityProvider {
 
-	override val configKeyDomain: ConfigKey.Domain = ConfigKey.Domain("okutoon.com")
+	override val configKeyDomain: ConfigKey.Domain = ConfigKey.Domain("okutoon.net", "okutoon.com")
 
 	private val communityHelper by lazy {
 		OkutoonCommunityHelper(
@@ -138,45 +138,45 @@ internal class Okutoon(context: MangaLoaderContext) :
 
 	private fun fetchAvailableTags(): Set<MangaTag> {
 		return setOf(
-			MangaTag("shounen", "Shounen", source),
-			MangaTag("seinen", "Seinen", source),
-			MangaTag("shoujo", "Shoujo", source),
-			MangaTag("josei", "Josei", source),
-			MangaTag("aile", "Aile", source),
-			MangaTag("aksiyon", "Aksiyon", source),
-			MangaTag("askeri", "Askeri", source),
-			MangaTag("bilim-kurgu", "Bilim Kurgu", source),
-			MangaTag("dogaustu", "Doğaüstü", source),
-			MangaTag("dovus-sanatlari", "Dövüş Sanatları", source),
-			MangaTag("dram", "Dram", source),
-			MangaTag("ecchi", "Ecchi", source),
-			MangaTag("fantezi", "Fantezi", source),
-			MangaTag("gerilim", "Gerilim", source),
-			MangaTag("gizem", "Gizem", source),
-			MangaTag("gunluk-hayat", "Günlük Hayat", source),
-			MangaTag("harem", "Harem", source),
-			MangaTag("hayatta-kalma", "Hayatta Kalma", source),
-			MangaTag("isekai", "Isekai", source),
-			MangaTag("kiyamet", "Kıyamet", source),
-			MangaTag("komedi", "Komedi", source),
-			MangaTag("korku", "Korku", source),
-			MangaTag("macera", "Macera", source),
-			MangaTag("murim", "Murim", source),
-			MangaTag("okul-hayati", "Okul Hayatı", source),
-			MangaTag("oyun", "Oyun", source),
-			MangaTag("psikolojik", "Psikolojik", source),
-			MangaTag("reenkarnasyon", "Reenkarnasyon", source),
-			MangaTag("romantizm", "Romantizm", source),
-			MangaTag("sihir", "Sihir", source),
-			MangaTag("sistem", "Sistem", source),
-			MangaTag("spor", "Spor", source),
-			MangaTag("suc", "Suç", source),
-			MangaTag("super-kahraman", "Süper Kahraman", source),
-			MangaTag("tarihi", "Tarihi", source),
-			MangaTag("vampir", "Vampir", source),
-			MangaTag("zamanda-yolculuk", "Zamanda Yolculuk", source),
-			MangaTag("zindan", "Zindan", source),
-			MangaTag("zombi", "Zombi", source),
+			MangaTag(title = "Shounen", key = "shounen", source = source),
+			MangaTag(title = "Seinen", key = "seinen", source = source),
+			MangaTag(title = "Shoujo", key = "shoujo", source = source),
+			MangaTag(title = "Josei", key = "josei", source = source),
+			MangaTag(title = "Aile", key = "aile", source = source),
+			MangaTag(title = "Aksiyon", key = "aksiyon", source = source),
+			MangaTag(title = "Askeri", key = "askeri", source = source),
+			MangaTag(title = "Bilim Kurgu", key = "bilim-kurgu", source = source),
+			MangaTag(title = "Doğaüstü", key = "dogaustu", source = source),
+			MangaTag(title = "Dövüş Sanatları", key = "dovus-sanatlari", source = source),
+			MangaTag(title = "Dram", key = "dram", source = source),
+			MangaTag(title = "Ecchi", key = "ecchi", source = source),
+			MangaTag(title = "Fantezi", key = "fantezi", source = source),
+			MangaTag(title = "Gerilim", key = "gerilim", source = source),
+			MangaTag(title = "Gizem", key = "gizem", source = source),
+			MangaTag(title = "Günlük Hayat", key = "gunluk-hayat", source = source),
+			MangaTag(title = "Harem", key = "harem", source = source),
+			MangaTag(title = "Hayatta Kalma", key = "hayatta-kalma", source = source),
+			MangaTag(title = "Isekai", key = "isekai", source = source),
+			MangaTag(title = "Kıyamet", key = "kiyamet", source = source),
+			MangaTag(title = "Komedi", key = "komedi", source = source),
+			MangaTag(title = "Korku", key = "korku", source = source),
+			MangaTag(title = "Macera", key = "macera", source = source),
+			MangaTag(title = "Murim", key = "murim", source = source),
+			MangaTag(title = "Okul Hayatı", key = "okul-hayati", source = source),
+			MangaTag(title = "Oyun", key = "oyun", source = source),
+			MangaTag(title = "Psikolojik", key = "psikolojik", source = source),
+			MangaTag(title = "Reenkarnasyon", key = "reenkarnasyon", source = source),
+			MangaTag(title = "Romantizm", key = "romantizm", source = source),
+			MangaTag(title = "Sihir", key = "sihir", source = source),
+			MangaTag(title = "Sistem", key = "sistem", source = source),
+			MangaTag(title = "Spor", key = "spor", source = source),
+			MangaTag(title = "Suç", key = "suc", source = source),
+			MangaTag(title = "Süper Kahraman", key = "super-kahraman", source = source),
+			MangaTag(title = "Tarihi", key = "tarihi", source = source),
+			MangaTag(title = "Vampir", key = "vampir", source = source),
+			MangaTag(title = "Zamanda Yolculuk", key = "zamanda-yolculuk", source = source),
+			MangaTag(title = "Zindan", key = "zindan", source = source),
+			MangaTag(title = "Zombi", key = "zombi", source = source),
 		)
 	}
 
@@ -334,15 +334,22 @@ internal class Okutoon(context: MangaLoaderContext) :
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
 		val fullUrl = chapter.url.toAbsoluteUrl(domain)
-		val doc = try {
-			webClient.httpGet(fullUrl).parseHtml()
-		} catch (_: Exception) {
-			loadRenderedDocument(
-				url = fullUrl,
-				readySelector = "div.reader-pages img, .reader-pages .reader-page, img.reader-page, #readerPages img, .reader-page-frame img, [data-page] img",
-			)
+		val httpDoc = webClient.httpGet(fullUrl).parseHtml()
+		val httpPages = parsePages(httpDoc)
+		if (httpPages.isNotEmpty()) {
+			return httpPages
 		}
+		if (isCloudflareChallengePage(httpDoc.outerHtml())) {
+			requestCloudflareVerification(fullUrl)
+		}
+		val renderedDoc = loadRenderedDocument(
+			url = fullUrl,
+			readySelector = "div.reader-pages img, .reader-pages .reader-page, img.reader-page, #readerPages img, .reader-page-frame img, [data-page] img",
+		)
+		return parsePages(renderedDoc)
+	}
 
+	private fun parsePages(doc: Document): List<MangaPage> {
 		val imgElements = doc.select("div.reader-pages img, .reader-pages .reader-page, img.reader-page, #readerPages img")
 			.ifEmpty { doc.select(".reader-page-frame img, [data-page] img") }
 
@@ -366,23 +373,21 @@ internal class Okutoon(context: MangaLoaderContext) :
 				const text = ((document.body && document.body.innerText) || (root && root.innerText) || '');
 				const lower = (document.title + '\n' + text + '\n' + html).toLowerCase();
 				const challengeDetected = () => {
-					return document.querySelector('script[src*="challenge-platform"]') !== null ||
-						document.querySelector('script[src*="turnstile"]') !== null ||
-					document.querySelector('iframe[src*="challenges.cloudflare.com"]') !== null ||
-					document.querySelector('[src*="challenges.cloudflare.com"]') !== null ||
-					document.querySelector('.cf-turnstile') !== null ||
-					document.querySelector('input[name="cf-turnstile-response"]') !== null ||
-					document.getElementById('challenge-error-title') !== null ||
-					document.getElementById('challenge-error-text') !== null ||
-					document.querySelector('form[action*="__cf_chl"]') !== null ||
-					document.querySelector('.cf-browser-verification') !== null ||
-					((lower.includes('just a moment') || lower.includes('checking your browser')) && lower.includes('cloudflare')) ||
-					lower.includes('private access token challenge') ||
-					lower.includes('challenge-platform') ||
-					lower.includes('challenges.cloudflare.com') ||
-					lower.includes('cf-turnstile') ||
-					lower.includes('turnstile') ||
-					lower.includes('cf-chl-opt');
+					return document.querySelector('script[src*="/cdn-cgi/challenge-platform"]') !== null ||
+						document.querySelector('iframe[src*="challenges.cloudflare.com"]') !== null ||
+						document.querySelector('[src*="challenges.cloudflare.com"]') !== null ||
+						document.querySelector('.cf-turnstile') !== null ||
+						document.getElementById('challenge-error-title') !== null ||
+						document.getElementById('challenge-error-text') !== null ||
+						document.getElementById('challenge-running') !== null ||
+						document.getElementById('challenge-stage') !== null ||
+						document.querySelector('form[action*="__cf_chl"]') !== null ||
+						document.querySelector('.cf-browser-verification') !== null ||
+						((lower.includes('just a moment') || lower.includes('bir dakika lütfen') || lower.includes('checking your browser')) && lower.includes('cloudflare')) ||
+						lower.includes('private access token challenge') ||
+						lower.includes('/cdn-cgi/challenge-platform') ||
+						lower.includes('challenges.cloudflare.com') ||
+						lower.includes('window._cf_chl_opt');
 				};
 				if (challengeDetected()) {
 					return "CLOUDFLARE_BLOCKED";
@@ -415,14 +420,16 @@ internal class Okutoon(context: MangaLoaderContext) :
 		if (html.isBlank()) return false
 		val lower = html.lowercase(Locale.US)
 		return lower.contains("<title>access denied") ||
-			lower.contains("<title>just a moment") ||
-			((lower.contains("just a moment") || lower.contains("checking your browser")) && lower.contains("cloudflare")) ||
+			((lower.contains("just a moment") || lower.contains("bir dakika lütfen") || lower.contains("checking your browser")) &&
+				(lower.contains("cloudflare") || lower.contains("/cdn-cgi/"))) ||
 			lower.contains("cf-browser-verification") ||
-			lower.contains("cf-chl-opt") ||
+			lower.contains("window._cf_chl_opt") ||
 			lower.contains("/cdn-cgi/challenge-platform/") ||
 			lower.contains("challenges.cloudflare.com") ||
 			lower.contains("cf-turnstile") ||
-			lower.contains("turnstile")
+			lower.contains("challenge-error-title") ||
+			lower.contains("challenge-error-text") ||
+			lower.contains("blocked_why_headline")
 	}
 
 		private fun String.decodeWebViewString(): String {
@@ -450,7 +457,8 @@ internal class Okutoon(context: MangaLoaderContext) :
 		val fullUrl = seed.url.toAbsoluteUrl(domain)
 		val doc = try {
 			webClient.httpGet(fullUrl).parseHtml()
-		} catch (_: Exception) {
+		} catch (e: Exception) {
+			e.rethrowIfCritical(rethrowNotFound = false)
 			return emptyList()
 		}
 		return doc.select("section.series-similar a.series-similar-card").mapNotNull { a ->

@@ -110,6 +110,7 @@ internal class MangaLivre(context: MangaLoaderContext) :
                 }
             }
         } catch (e: Exception) {
+            e.rethrowIfCritical()
             println("ERROR: evaluateJs failed for $initialUrl (${e.message})")
             null
         }
@@ -117,7 +118,8 @@ internal class MangaLivre(context: MangaLoaderContext) :
         if (html.isNullOrBlank()) {
             println("ERROR: No HTML content captured for $initialUrl")
         } else if (html == "CLOUDFLARE_BLOCKED") {
-            println("INFO: Cloudflare challenge detected, requesting browser action")
+            println("INFO: Cloudflare challenge detected, requesting verification")
+            requestCloudflareVerification(initialUrl)
         } else {
             val doc = Jsoup.parse(html, initialUrl)
             println("DEBUG: Captured ${html.length} chars for $initialUrl")
@@ -132,6 +134,8 @@ internal class MangaLivre(context: MangaLoaderContext) :
             if (hasValidMangaLivreContent(doc)) {
                 println("DEBUG: Found valid MangaLivre content")
                 return doc
+            } else if (isActiveCloudflareChallenge(html)) {
+                requestCloudflareVerification(initialUrl)
             } else {
                 println("DEBUG: No valid MangaLivre content found - treating as blocked")
                 // Don't return the document if it doesn't have manga content
@@ -140,11 +144,18 @@ internal class MangaLivre(context: MangaLoaderContext) :
 
         if (allowBrowserAction) {
             println("INFO: Requesting browser action to solve Cloudflare for $initialUrl")
-            context.requestBrowserAction(this, initialUrl)
-            throw ParseException("Browser action requested for Cloudflare bypass", initialUrl)
+            requestCloudflareVerification(initialUrl)
         }
 
         throw ParseException("Failed to load page content", initialUrl)
+    }
+
+    private fun requestCloudflareVerification(url: String): Nothing {
+        try {
+            context.requestCloudflareVerification(this, url)
+        } catch (e: UnsupportedOperationException) {
+            throw ParseException("Cloudflare verification is required", url, e)
+        }
     }
 
 
@@ -546,9 +557,8 @@ internal class MangaLivre(context: MangaLoaderContext) :
             }
         }
 
-        if (html == "CLOUDFLARE_BLOCKED") {
-            context.requestBrowserAction(this, fullUrl)
-            throw ParseException("Cloudflare challenge detected", fullUrl)
+        if (html == "CLOUDFLARE_BLOCKED" || isActiveCloudflareChallenge(html)) {
+            requestCloudflareVerification(fullUrl)
         }
 
         val doc = Jsoup.parse(html, fullUrl)

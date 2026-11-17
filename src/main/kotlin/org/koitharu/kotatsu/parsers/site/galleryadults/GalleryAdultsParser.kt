@@ -104,11 +104,14 @@ internal abstract class GalleryAdultsParser(
 	private val regexSpaces = Regex("\\s+")
 
 	protected open fun parseMangaList(doc: Document): List<Manga> {
-		return doc.select(selectGallery).map { div ->
-			val href = div.selectFirstOrThrow(selectGalleryLink).attrAsRelativeUrl("href")
+		return doc.select(selectGallery).mapNotNull { div ->
+			val href = div.selectFirst(selectGalleryLink)?.attrAsRelativeUrlOrNull("href")
+				?: return@mapNotNull null
+			val title = div.select(selectGalleryTitle).text().cleanupTitle()
+			if (title.isBlank()) return@mapNotNull null
 			Manga(
 				id = generateUid(href),
-				title = div.select(selectGalleryTitle).text().cleanupTitle(),
+				title = title,
 				altTitles = emptySet(),
 				url = href,
 				publicUrl = href.toAbsoluteUrl(domain),
@@ -169,6 +172,7 @@ internal abstract class GalleryAdultsParser(
 		return manga.copy(
 			tags = tag.orEmpty(),
 			title = doc.selectFirst(selectTitle)?.textOrNull()?.cleanupTitle() ?: manga.title,
+			description = manga.description.orEmpty(),
 			authors = setOfNotNull(author),
 			chapters = listOf(
 				MangaChapter(

@@ -2,10 +2,12 @@ package org.koitharu.kotatsu.parsers.site.madara.tr
 
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
+import org.koitharu.kotatsu.parsers.exception.ParseException
 import org.koitharu.kotatsu.parsers.model.ContentRating
 import org.koitharu.kotatsu.parsers.model.ContentType
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
+import org.koitharu.kotatsu.parsers.model.MangaPage
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.model.MangaState
 import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
@@ -84,5 +86,18 @@ internal class LunaScans(context: MangaLoaderContext) :
 				ContentRating.SAFE
 			},
 		)
+	}
+
+	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
+		return try {
+			super.getPages(chapter)
+		} catch (e: ParseException) {
+			val fullUrl = chapter.url.toAbsoluteUrl(domain)
+			val doc = webClient.httpGet(fullUrl).parseHtml()
+			if (doc.selectFirst(".tuhaf-lock") != null) {
+				throw ParseException("Locked chapter (subscription/coins required on site)", fullUrl, e)
+			}
+			throw e
+		}
 	}
 }

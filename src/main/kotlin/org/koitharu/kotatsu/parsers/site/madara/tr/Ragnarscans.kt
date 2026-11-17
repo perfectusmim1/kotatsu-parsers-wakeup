@@ -9,6 +9,7 @@ import org.koitharu.kotatsu.parsers.model.MangaPage
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.site.initmanga.InitMangaParser
 import org.koitharu.kotatsu.parsers.util.parseHtml
+import org.koitharu.kotatsu.parsers.util.rethrowIfCritical
 import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 
 @Broken
@@ -29,6 +30,7 @@ internal class Ragnarscans(context: MangaLoaderContext) :
 		return try {
 			super.getPages(chapter)
 		} catch (e: Exception) {
+			e.rethrowIfCritical()
 			val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
 			if (doc.selectFirst("#chapter-content .lock-card, .lock-card") != null) {
 				throw AuthRequiredException(source)

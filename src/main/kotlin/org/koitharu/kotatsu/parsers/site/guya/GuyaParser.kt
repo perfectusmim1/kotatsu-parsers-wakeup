@@ -62,8 +62,9 @@ internal abstract class GuyaParser(
 	}
 
 	private fun addManga(j: JSONObject, name: String): Manga {
-		val url = "https://$domain/read/manga/" + j.getString("slug")
-		val apiUrl = "https://$domain/api/series/" + j.getString("slug")
+		val slug = j.getString("slug")
+		val url = "https://$domain/read/manga/$slug"
+		val apiUrl = "/api/series/$slug"
 		val author = j.getString("author")
 		return Manga(
 			id = generateUid(apiUrl),
@@ -92,7 +93,7 @@ internal abstract class GuyaParser(
 			val key = keys.next()
 			++i
 			val chapter = json.getJSONObject(key)
-			val url = "https://$domain/api/series/$slug/$key"
+			val url = "/api/series/$slug/$key"
 			chapters.add(
 				MangaChapter(
 					id = generateUid(url),

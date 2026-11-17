@@ -156,6 +156,7 @@ internal class HentaiManga(context: MangaLoaderContext) :
 			try {
 				return webClient.httpPost(url, payload, headers).parseHtml()
 			} catch (e: Exception) {
+				e.rethrowIfCritical()
 				// Log or handle the exception as needed
 				if (++retryCount <= 5) {
 					withContext(Dispatchers.Default) {

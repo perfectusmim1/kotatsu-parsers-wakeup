@@ -172,13 +172,15 @@ internal abstract class MangaReaderParser(
 	protected open fun parseMangaList(docs: Document): List<Manga> {
 		return docs.select(selectMangaList).mapNotNull {
 			val a = it.selectFirst("a") ?: return@mapNotNull null
-			val relativeUrl = a.attrAsRelativeUrl("href")
+			val relativeUrl = a.attrAsRelativeUrlOrNull("href") ?: return@mapNotNull null
+			val title = (it.selectFirst(selectMangaListTitle)?.text() ?: a.attr("title")).trim()
+			if (title.isEmpty()) return@mapNotNull null
 			val rating = it.selectFirst(".numscore")?.text()
 				?.toFloatOrNull()?.div(10) ?: RATING_UNKNOWN
 			Manga(
 				id = generateUid(relativeUrl),
 				url = relativeUrl,
-				title = it.selectFirst(selectMangaListTitle)?.text() ?: a.attr("title"),
+				title = title,
 				altTitles = emptySet(),
 				publicUrl = a.attrAsAbsoluteUrl("href"),
 				rating = rating,

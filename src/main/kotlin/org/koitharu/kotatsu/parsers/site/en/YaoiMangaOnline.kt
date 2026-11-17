@@ -309,6 +309,7 @@ internal class YaoiMangaOnline(context: MangaLoaderContext) :
 					timeout = timeoutMs,
 				)
 			} catch (e: Exception) {
+				e.rethrowIfCritical()
 				throw ParseException(cloudflareMessage, initialUrl, e)
 			}
 
@@ -325,7 +326,7 @@ internal class YaoiMangaOnline(context: MangaLoaderContext) :
 			}
 
 			if (allowBrowserAction) {
-				context.requestBrowserAction(this, initialUrl)
+				requestCloudflareVerification(initialUrl)
 			}
 			throw ParseException(cloudflareMessage, initialUrl)
 		} else {
@@ -338,10 +339,23 @@ internal class YaoiMangaOnline(context: MangaLoaderContext) :
 		}
 	}
 
+	private fun requestCloudflareVerification(url: String): Nothing {
+		try {
+			context.requestCloudflareVerification(this, url)
+		} catch (e: UnsupportedOperationException) {
+			throw ParseException(cloudflareMessage, url, e)
+		}
+	}
+
 	private suspend fun tryHttpDocument(url: String): Document? {
-		val response = runCatching { webClient.httpGet(url) }.getOrNull() ?: return null
+		val response = try {
+			webClient.httpGet(url)
+		} catch (e: Exception) {
+			e.rethrowIfCritical()
+			return null
+		}
 		return response.use { res ->
-			val doc = runCatching { res.parseHtml() }.getOrNull() ?: return null
+			val doc = runCatchingCancellable { res.parseHtml() }.getOrNull() ?: return null
 
 			// Check for successful YaoiMangaOnline content first
 			if (hasValidYaoiContent(doc)) {
@@ -351,7 +365,7 @@ internal class YaoiMangaOnline(context: MangaLoaderContext) :
 			// Only reject if it's clearly an active Cloudflare challenge
 			val html = doc.outerHtml()
 			if (isActiveCloudflareChallenge(html)) {
-				return null
+				requestCloudflareVerification(url)
 			}
 
 			// If we're not sure, allow the page through

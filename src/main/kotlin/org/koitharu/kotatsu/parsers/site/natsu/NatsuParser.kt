@@ -30,6 +30,7 @@ import org.koitharu.kotatsu.parsers.util.generateUid
 import org.koitharu.kotatsu.parsers.util.mapNotNullToSet
 import org.koitharu.kotatsu.parsers.util.parseHtml
 import org.koitharu.kotatsu.parsers.util.requireSrc
+import org.koitharu.kotatsu.parsers.util.rethrowIfCritical
 import org.koitharu.kotatsu.parsers.util.src
 import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 import org.koitharu.kotatsu.parsers.util.toRelativeUrl
@@ -396,7 +397,8 @@ internal abstract class NatsuParser(
                 )
             }
             tags
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            e.rethrowIfCritical(rethrowNotFound = false)
             // Fallback to advanced-search page method
             try {
                 val doc = webClient.httpGet("https://${domain}/advanced-search/").parseHtml()
@@ -428,7 +430,8 @@ internal abstract class NatsuParser(
                     )
                 }
                 tags
-            } catch (_: Exception) {
+            } catch (fallbackError: Exception) {
+                fallbackError.rethrowIfCritical(rethrowNotFound = false)
                 emptySet()
             }
         }

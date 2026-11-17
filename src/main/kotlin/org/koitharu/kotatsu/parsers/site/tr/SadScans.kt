@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.tr
 
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceCommunityProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -22,12 +23,13 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken("Site rebuilt with obfuscated anti-scraper API, proof tokens, and Shadow DOM reader")
 @MangaSourceParser("SADSCANS", "SadScans", "tr")
 internal class SadScans(context: MangaLoaderContext) :
 	SinglePageMangaParser(context, MangaParserSource.SADSCANS),
 	MangaSourceCommunityProvider {
 
-	override val configKeyDomain = ConfigKey.Domain("sadscans.com")
+	override val configKeyDomain = ConfigKey.Domain("sadscans.net", "sadscans.com")
 
 	private val wpComments by lazy {
 		WordPressCommentsHelper(

@@ -133,12 +133,16 @@ internal class Multporn(context: MangaLoaderContext) :
         }
 
         val doc = webClient.httpGet(url).parseHtml()
-        return doc.select(".masonry-item").map { div ->
-            val href = div.selectFirstOrThrow(".views-field-title a").attrAsRelativeUrl("href")
-            val coverUrl = div.selectFirstOrThrow(".views-field img").requireSrc()
+        return doc.select(".masonry-item").mapNotNull { div ->
+            val link = div.selectFirst(".views-field-title a, .views-field-name a") ?: return@mapNotNull null
+            val href = link.attrAsRelativeUrlOrNull("href") ?: return@mapNotNull null
+            val title = div.selectFirst(".views-field-title")?.textOrNull()
+                ?: link.textOrNull()
+                ?: return@mapNotNull null
+            val coverUrl = div.selectFirst(".views-field img")?.src()
             Manga(
                 id = generateUid(href),
-                title = div.select(".views-field-title").text(),
+                title = title,
                 altTitles = emptySet(),
                 url = href,
                 publicUrl = href.toAbsoluteUrl(domain),

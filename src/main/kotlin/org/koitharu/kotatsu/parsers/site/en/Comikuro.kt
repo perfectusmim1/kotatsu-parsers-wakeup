@@ -312,7 +312,7 @@ internal class Comikuro(context: MangaLoaderContext) : PagedMangaParser(context,
 
 	private fun requestCloudflareVerification(url: String): Nothing {
 		try {
-			context.requestBrowserAction(this, url)
+			context.requestCloudflareVerification(this, url)
 		} catch (e: UnsupportedOperationException) {
 			throw ParseException(cloudflareMessage, url, e)
 		}

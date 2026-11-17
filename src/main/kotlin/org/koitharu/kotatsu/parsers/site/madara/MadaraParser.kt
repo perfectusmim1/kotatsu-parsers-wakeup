@@ -596,8 +596,8 @@ internal abstract class MadaraParser(
 			return emptyList()
 		}
 
-		return elements.map { div ->
-			val href = div.selectFirstOrThrow("a").attrAsRelativeUrl("href")
+		return elements.mapNotNull { div ->
+			val href = div.selectFirst("a")?.attrAsRelativeUrlOrNull("href") ?: return@mapNotNull null
 			val summary = div.selectFirst(".tab-summary") ?: div.selectFirst(".item-summary")
 			val author = summary?.selectFirst(".mg_author, .mg_artists")?.selectFirst("a")?.ownText()
 			Manga(
@@ -648,13 +648,19 @@ internal abstract class MadaraParser(
 		val body = doc.body()
 		val root1 = body.selectFirst("header")?.selectFirst("ul.second-menu")
 		val root2 = body.selectFirst("div.genres_wrap")?.selectFirst("ul.list-unstyled")
-		if (root1 == null && root2 == null) {
+		val fallbackLinks = if (root2 == null) {
+			body.selectFirst("div.genres_wrap")?.select("div.genres a[href*=$tagPrefix]").orEmpty()
+		} else {
+			emptyList()
+		}
+		if (root1 == null && root2 == null && fallbackLinks.isEmpty()) {
 			doc.parseFailed("Root not found")
 		}
-		val list = root1?.select("li").orEmpty() + root2?.select("li").orEmpty()
-		val keySet = HashSet<String>(list.size)
-		return list.mapNotNullToSet { li ->
-			val a = li.selectFirst("a") ?: return@mapNotNullToSet null
+		val anchors = root1?.select("li")?.mapNotNull { it.selectFirst("a") }.orEmpty() +
+			root2?.select("li")?.mapNotNull { it.selectFirst("a") }.orEmpty() +
+			fallbackLinks
+		val keySet = HashSet<String>(anchors.size)
+		return anchors.mapNotNullToSet { a ->
 			val href = a.attr("href").removeSuffix('/').substringAfterLast(tagPrefix, "")
 			if (href.isEmpty() || !keySet.add(href)) {
 				return@mapNotNullToSet null

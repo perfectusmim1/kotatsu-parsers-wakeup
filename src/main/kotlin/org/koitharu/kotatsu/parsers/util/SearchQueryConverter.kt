@@ -100,13 +100,11 @@ internal fun MangaSearchQueryCapabilities.toMangaListFilterCapabilities() = Mang
 internal fun MangaListFilterCapabilities.toMangaSearchQueryCapabilities(): MangaSearchQueryCapabilities =
 	MangaSearchQueryCapabilities(
 		capabilities = setOfNotNull(
-			isMultipleTagsSupported.takeIf { it }?.let {
-				SearchCapability(
-					field = TAG,
-					criteriaTypes = setOf(Include::class),
-					isMultiple = true,
-				)
-			},
+			SearchCapability(
+				field = TAG,
+				criteriaTypes = setOf(Include::class),
+				isMultiple = isMultipleTagsSupported,
+			),
 			isTagsExclusionSupported.takeIf { it }?.let {
 				SearchCapability(
 					field = TAG,
