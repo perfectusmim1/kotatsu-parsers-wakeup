@@ -1716,7 +1716,7 @@ $SITE_API_JS
                 }
                 if (result === CAPTCHA) return '$SITE_CAPTCHA';
 
-                const pageList = Array.isArray(result) ? result : ((result && (result.ia || result.iy)) || null);
+                const pageList = Array.isArray(result) ? result : ((result && (result.UJ || result.ia || result.iy)) || null);
                 if (Array.isArray(pageList)) {
                     const first = pageList[0] || {};
                     const alt = (Array.isArray(first.wt) ? first.wt : undefined) || first.Jr || ((first.hG && Array.isArray(first.hG)) ? first.hG : (result && Array.isArray(result.hG) ? result.hG : undefined));
