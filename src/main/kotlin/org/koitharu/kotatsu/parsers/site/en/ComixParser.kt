@@ -1244,78 +1244,11 @@ internal class Comix(context: MangaLoaderContext) :
         // Notes a 403 captcha_required answer: the site asking for its own captcha.
         // The site's client then waits for it to be solved, so a call that hit it
         // never settles in a hidden WebView.
+        // Keep hooks non-invasive: comix.to's apicore actively checks XMLHttpRequest,
+        // fetch, JSON.parse, toString, defineProperty, and addEventListener for
+        // `[native code]` signatures and wipes/reloads the DOM if monkey-patched.
         private const val SITE_HOOKS_JS = """
-                if (!window.__comixHooks) {
-                    window.__comixHooks = true;
-                    const seen = window.__comixSeen = [];
-                    const keep = (holder) => {
-                        if (holder && typeof holder === 'object' && Array.isArray(holder.items)) {
-                            seen.push(holder);
-                            if (seen.length > 100) seen.shift();
-                        }
-                    };
-                    const parse = JSON.parse;
-                    JSON.parse = function () {
-                        const value = parse.apply(this, arguments);
-                        try {
-                            if (value && typeof value === 'object') {
-                                keep(value);
-                                const result = value.result;
-                                if (result && typeof result === 'object') {
-                                    keep(result);
-                                    keep(result.pages);
-                                }
-                            }
-                        } catch (e) {}
-                        return value;
-                    };
-                    const lists = window.__comixLists = [];
-                    const record = (rawUrl, text) => {
-                        try {
-                            const url = new URL(String(rawUrl || ''), location.origin);
-                            if (url.pathname.replace(/\/+$/, '') !== '/api/v1/manga') return;
-                            const value = parse(text);
-                            const holder = value && value.result && Array.isArray(value.result.items)
-                                ? value.result
-                                : (value && Array.isArray(value.items)
-                                    ? value
-                                    : (value && Array.isArray(value.xe)
-                                        ? { items: value.xe }
-                                        : (value && Array.isArray(value.Gb) ? { items: value.Gb } : null)));
-                            if (holder) lists.push({ keyword: (url.searchParams.get('keyword') || '').trim(), holder: holder });
-                        } catch (e) {}
-                    };
-                    const open = XMLHttpRequest.prototype.open;
-                    XMLHttpRequest.prototype.open = function (method, url) {
-                        this.__comixUrl = url;
-                        return open.apply(this, arguments);
-                    };
-                    const send = XMLHttpRequest.prototype.send;
-                    XMLHttpRequest.prototype.send = function () {
-                        this.addEventListener('load', function () {
-                            try {
-                                if (this.status === 403 && String(this.responseText).indexOf('captcha_required') !== -1) {
-                                    window.__comixCaptcha = true;
-                                }
-                                if (this.status === 200) record(this.responseURL || this.__comixUrl, this.responseText);
-                            } catch (e) {}
-                        });
-                        return send.apply(this, arguments);
-                    };
-                    if (typeof window.fetch === 'function') {
-                        const fetchNative = window.fetch;
-                        window.fetch = function () {
-                            return fetchNative.apply(this, arguments).then((response) => {
-                                try {
-                                    if (response && response.ok && String(response.url).indexOf('/api/v1/manga') !== -1) {
-                                        response.clone().text().then((text) => record(response.url, text)).catch(() => {});
-                                    }
-                                } catch (e) {}
-                                return response;
-                            });
-                        };
-                    }
-                }
+                window.__comixCaptcha = false;
         """
 
         // Recognises blocking documents from stable DOM markers rather than their
@@ -1411,12 +1344,12 @@ internal class Comix(context: MangaLoaderContext) :
 
                             // Direct exports from apicore (f: mangaApi, n: readerApi)
                             if (!mangaApi && exported.f && typeof exported.f === 'object') {
-                                if (typeof exported.f.Ss === 'function' || typeof exported.f.Ix === 'function') {
+                                if (typeof exported.f.e2 === 'function' || typeof exported.f.yu === 'function' || typeof exported.f.Ss === 'function' || typeof exported.f.Ix === 'function') {
                                     mangaApi = exported.f;
                                 }
                             }
                             if (!readerApi && exported.n && typeof exported.n === 'object') {
-                                if (typeof exported.n._m === 'function' || typeof exported.n.ur === 'function') {
+                                if (typeof exported.n.WL === 'function' || typeof exported.n._m === 'function' || typeof exported.n.ur === 'function') {
                                     readerApi = exported.n;
                                 }
                             }
@@ -1424,10 +1357,10 @@ internal class Comix(context: MangaLoaderContext) :
                             for (const key of Object.keys(exported)) {
                                 const val = exported[key];
                                 if (!val || typeof val !== 'object') continue;
-                                if (!mangaApi && (typeof val.Ss === 'function' || typeof val.Ix === 'function') && (typeof val.TE === 'function' || typeof val.Cs === 'function')) {
+                                if (!mangaApi && ((typeof val.yu === 'function' && typeof val.e2 === 'function') || ((typeof val.Ss === 'function' || typeof val.Ix === 'function') && (typeof val.TE === 'function' || typeof val.Cs === 'function')))) {
                                     mangaApi = val;
                                 }
-                                if (!readerApi && (typeof val._m === 'function' || typeof val.ur === 'function') && typeof val.Ss !== 'function' && typeof val.Ix !== 'function') {
+                                if (!readerApi && (typeof val.WL === 'function' || typeof val._m === 'function' || typeof val.ur === 'function') && typeof val.yu !== 'function' && typeof val.e2 !== 'function' && typeof val.Ss !== 'function' && typeof val.Ix !== 'function') {
                                     readerApi = val;
                                 }
                             }
@@ -1437,8 +1370,9 @@ internal class Comix(context: MangaLoaderContext) :
                             return {
                                 mangaApi: mangaApi,
                                 readerApi: readerApi,
-                                fetchChapters: mangaApi ? (id, opts) => (mangaApi.Ss || mangaApi.Ix)(id, opts) : null,
-                                fetchChapterPages: readerApi ? (id) => (readerApi._m || readerApi.ur)(id) : null
+                                fetchMangaList: mangaApi && typeof mangaApi.yu === 'function' ? (params) => mangaApi.yu(params) : null,
+                                fetchChapters: mangaApi ? (id, opts) => (mangaApi.e2 || mangaApi.Ss || mangaApi.Ix)(id, opts) : null,
+                                fetchChapterPages: readerApi ? (id) => (readerApi.WL || readerApi._m || readerApi.ur)(id) : null
                             };
                         }
                         return null;
@@ -1531,19 +1465,19 @@ $SITE_API_JS
                     }
                     if (rawResult === CAPTCHA) return '$SITE_CAPTCHA';
                     
-                    const rawItems = (rawResult && (rawResult.xe || rawResult.Gb || rawResult.items)) || [];
-                    const rawMeta = (rawResult && (rawResult.IX || rawResult.sk || rawResult.meta)) || {};
+                    const rawItems = (rawResult && (rawResult.e7 || rawResult.xe || rawResult.Gb || rawResult.items)) || [];
+                    const rawMeta = (rawResult && (rawResult.YJ || rawResult.IX || rawResult.sk || rawResult.meta)) || {};
 
                     const items = rawItems.map((c) => ({
-                        id: c.vJ != null ? c.vJ : (c.zf != null ? c.zf : c.id),
-                        number: c.${'$'}A != null ? c.${'$'}A : (c.K8 != null ? c.K8 : c.number),
-                        name: c.Sd != null ? c.Sd : (c.LG != null ? c.LG : (c.name || null)),
-                        volume: c.eA != null ? c.eA : (c.Ae != null ? c.Ae : (c.volume || null)),
-                        url: c.CK != null ? c.CK : (c.fI != null ? c.fI : (c.url || '')),
-                        isOfficial: c.xX != null ? !!c.xX : (c.xb != null ? !!c.xb : !!c.isOfficial),
-                        group: c.WB ? { id: c.WB.A0, name: c.WB.Sd } : (c.UN ? { id: c.UN.QL, name: c.UN.LG } : (c.group || null)),
+                        id: c.t6 != null ? c.t6 : (c.vJ != null ? c.vJ : (c.zf != null ? c.zf : c.id)),
+                        number: c.UK != null ? c.UK : (c.${'$'}A != null ? c.${'$'}A : (c.K8 != null ? c.K8 : c.number)),
+                        name: c.OT !== undefined ? c.OT : (c.Sd != null ? c.Sd : (c.LG != null ? c.LG : (c.name || null))),
+                        volume: c.ER !== undefined ? c.ER : (c.eA != null ? c.eA : (c.Ae != null ? c.Ae : (c.volume || null))),
+                        url: c.pU != null ? c.pU : (c.CK != null ? c.CK : (c.fI != null ? c.fI : (c.url || ''))),
+                        isOfficial: c.I2 != null ? !!c.I2 : (c.xX != null ? !!c.xX : (c.xb != null ? !!c.xb : !!c.isOfficial)),
+                        group: c.eX ? { id: c.eX.NO, name: c.eX.OT } : (c.WB ? { id: c.WB.A0, name: c.WB.Sd } : (c.UN ? { id: c.UN.QL, name: c.UN.LG } : (c.group || null))),
                         createdAt: c.CK_time != null ? c.CK_time : (c.DC != null ? c.DC : (c.createdAt || null)),
-                        createdAtFormatted: typeof c.ZM === 'string' ? c.ZM : (typeof c.DC === 'string' ? c.DC : (c.createdAtFormatted || null))
+                        createdAtFormatted: typeof c.Hr === 'string' ? c.Hr : (typeof c.ZM === 'string' ? c.ZM : (typeof c.DC === 'string' ? c.DC : (c.createdAtFormatted || null)))
                     }));
 
                     if (!Array.isArray(items) || (items.length > 0 && typeof items[0].id === 'undefined')) {
@@ -1552,10 +1486,10 @@ $SITE_API_JS
                         });
                     }
                     collected.push(...items);
-                    const metaTotal = rawMeta.${'$'}E != null ? rawMeta.${'$'}E : (rawMeta.JO != null ? rawMeta.JO : rawMeta.total);
+                    const metaTotal = rawMeta.BI != null ? rawMeta.BI : (rawMeta.${'$'}E != null ? rawMeta.${'$'}E : (rawMeta.JO != null ? rawMeta.JO : rawMeta.total));
                     if (typeof metaTotal === 'number') total = metaTotal;
-                    const lastPage = rawMeta.IV != null ? rawMeta.IV : (rawMeta.XT != null ? rawMeta.XT : (rawMeta.lastPage || rawMeta.last_page || page));
-                    const hasNext = rawMeta.UV != null ? rawMeta.UV : (rawMeta.eQ != null ? rawMeta.eQ : (rawMeta.hasNext !== false));
+                    const lastPage = rawMeta.eT != null ? rawMeta.eT : (rawMeta.IV != null ? rawMeta.IV : (rawMeta.XT != null ? rawMeta.XT : (rawMeta.lastPage || rawMeta.last_page || page)));
+                    const hasNext = rawMeta.cL !== undefined ? rawMeta.cL : (rawMeta.UV != null ? rawMeta.UV : (rawMeta.eQ != null ? rawMeta.eQ : (rawMeta.hasNext !== false)));
                     if (items.length === 0 || hasNext === false || page >= lastPage) break;
                 }
 
@@ -1627,50 +1561,60 @@ $SITE_API_JS
 $CLOUDFLARE_DETECT_JS
                 if (isWebViewLoadError()) return '$WEBVIEW_LOAD_FAILED';
                 if (isCloudflareChallenge()) return '$CLOUDFLARE_BLOCKED';
+                if (isSiteCaptcha()) return '$SITE_CAPTCHA';
                 if (isBadGateway()) return blockedResult();
+$SITE_API_JS
                 const compactNamedItems = (values) => {
                     if (!Array.isArray(values)) return undefined;
                     return values.map((value) => {
                         if (!value || typeof value !== 'object') return null;
                         const item = {};
                         if (value.id != null) item.id = value.id;
+                        else if (value.I0 != null) item.id = value.I0;
                         if (value.title) item.title = value.title;
+                        else if (value.CA) item.title = value.CA;
                         else if (value.name) item.name = value.name;
                         return item;
                     }).filter((value) => value && (value.title || value.name));
                 };
                 const compactItem = (item) => {
                     const result = {
-                        hid: item.hid || item.hash_id || item.WQ || item.zq || '',
-                        title: item.title || item['C${'$'}'] || item.u4 || ''
+                        hid: item.M0 || item.hid || item.hash_id || item.WQ || item.zq || '',
+                        title: item.CA || item.title || item['C${'$'}'] || item.u4 || ''
                     };
-                    if (item.synopsis) result.synopsis = item.synopsis;
+                    if (item.q7) result.synopsis = item.q7;
+                    else if (item.synopsis) result.synopsis = item.synopsis;
                     else if (item.Ld) result.synopsis = item.Ld;
                     else if (item.qI) result.synopsis = item.qI;
 
-                    if (item.status) result.status = item.status;
+                    if (item.Vl) result.status = item.Vl;
+                    else if (item.status) result.status = item.status;
                     else if (item.Jf) result.status = item.Jf;
                     else if (item.iI) result.status = item.iI;
 
-                    if (item.contentRating) result.contentRating = item.contentRating;
+                    if (item.Wn) result.contentRating = item.Wn;
+                    else if (item.contentRating) result.contentRating = item.contentRating;
                     else if (item.zc) result.contentRating = item.zc;
                     else if (item.jf) result.contentRating = item.jf;
 
-                    if (item.ratedAvg != null) result.ratedAvg = item.ratedAvg;
+                    if (item.ML != null) result.ratedAvg = item.ML;
+                    else if (item.ratedAvg != null) result.ratedAvg = item.ratedAvg;
                     else if (item.MG != null) result.ratedAvg = item.MG;
                     else if (item.rated_avg != null) result.rated_avg = item.rated_avg;
                     else if (item.gv != null) result.ratedAvg = item.gv;
 
-                    const posterObj = item.poster || item.u0 || item.KX;
+                    const posterObj = item.yg || item.poster || item.u0 || item.KX;
                     if (posterObj && typeof posterObj === 'object') {
                         result.poster = {};
-                        if (posterObj.large) result.poster.large = posterObj.large;
-                        if (posterObj.medium) result.poster.medium = posterObj.medium;
+                        if (posterObj.Bo) result.poster.large = posterObj.Bo;
+                        else if (posterObj.large) result.poster.large = posterObj.large;
+                        else if (posterObj.JW) result.poster.large = posterObj.JW;
+                        else if (posterObj.lW) result.poster.large = posterObj.lW;
+                        if (posterObj.XT) result.poster.medium = posterObj.XT;
+                        else if (posterObj.medium) result.poster.medium = posterObj.medium;
+                        else if (posterObj.Q9) result.poster.medium = posterObj.Q9;
+                        else if (posterObj.ZN) result.poster.medium = posterObj.ZN;
                         if (posterObj.small) result.poster.small = posterObj.small;
-                        if (posterObj.JW) result.poster.large = posterObj.JW;
-                        if (posterObj.Q9) result.poster.medium = posterObj.Q9;
-                        if (posterObj.lW) result.poster.large = posterObj.lW;
-                        if (posterObj.ZN) result.poster.medium = posterObj.ZN;
                     }
                     const termKeys = ['genres', 'genre', 'tags', 'theme', 'demographics', 'demographic', 'formats'];
                     for (const key of termKeys) {
@@ -1681,46 +1625,68 @@ $CLOUDFLARE_DETECT_JS
                     if (authors && authors.length) result.authors = authors;
                     return result;
                 };
+                const getItems = (holder) => holder && (holder.e7 || holder.items || holder.xe || holder.Gb);
                 const isManga = (item) => item && typeof item === 'object' &&
-                    !!(item.hid || item.hash_id || item.WQ || item.zq) && typeof (item.title || item['C${'$'}'] || item.u4) === 'string';
-                // A paginated list of titles. An empty one is a search with no match
-                // or a page past the end; the browse page loads no other paged list.
-                const isList = (holder) => holder && (Array.isArray(holder.items) || Array.isArray(holder.xe) || Array.isArray(holder.Gb)) && (
-                    (holder.items || holder.xe || holder.Gb).length > 0
-                        ? (holder.items || holder.xe || holder.Gb).every(isManga)
-                        : (!!holder.meta || !!holder.IX || !!holder.sk)
-                );
-                const found = (holder) => JSON.stringify({ result: { items: (holder.items || holder.xe || holder.Gb).map(compactItem) } });
-                // A search only takes a list asked for with its keyword. A plain listing
-                // also falls back to any decoded list, should the response itself not
-                // be readable.
-                const keyword = (new URL(location.href).searchParams.get('keyword') || '').trim();
-                for (let i = 0; i < 300; i++) {
-                    const lists = window.__comixLists || [];
-                    for (let k = lists.length - 1; k >= 0; k--) {
-                        if (lists[k].keyword === keyword && isList(lists[k].holder)) return found(lists[k].holder);
-                    }
-                    const seen = window.__comixSeen || [];
-                    for (let k = seen.length - 1; k >= 0 && !keyword; k--) {
-                        if (isList(seen[k])) return found(seen[k]);
-                    }
-                    try {
-                        const node = document.querySelector('script#initial-data');
-                        const queries = node && node.textContent && JSON.parse(node.textContent).queries;
-                        if (queries) {
-                            for (const k in queries) {
-                                const value = queries[k];
-                                const holder = value && (Array.isArray(value.items) ? value : (Array.isArray(value.xe) ? value : (Array.isArray(value.Gb) ? value : (value.result || null))));
-                                if (isList(holder) && (holder.items || holder.xe || holder.Gb).length > 0) return found(holder);
-                            }
+                    !!(item.M0 || item.hid || item.hash_id || item.WQ || item.zq) && typeof (item.CA || item.title || item['C${'$'}'] || item.u4) === 'string';
+                const isList = (holder) => {
+                    const arr = getItems(holder);
+                    return Array.isArray(arr) && (
+                        arr.length > 0
+                            ? arr.every(isManga)
+                            : (!!(holder.YJ || holder.meta || holder.IX || holder.sk))
+                    );
+                };
+                const found = (holder) => JSON.stringify({ result: { items: getItems(holder).map(compactItem) } });
+
+                let initialData = null;
+                try {
+                    const node = document.querySelector('script#initial-data');
+                    initialData = node && node.textContent ? JSON.parse(node.textContent) : null;
+                    const queries = initialData && initialData.queries;
+                    if (queries) {
+                        for (const k in queries) {
+                            const value = queries[k];
+                            const holder = value && (getItems(value) ? value : (value.result || null));
+                            if (isList(holder) && getItems(holder).length > 0) return found(holder);
                         }
-                    } catch (e) {}
-                    if (isWebViewLoadError()) return '$WEBVIEW_LOAD_FAILED';
-                    if (isCloudflareChallenge()) return '$CLOUDFLARE_BLOCKED';
-                    if (isSiteCaptcha()) return '$SITE_CAPTCHA';
-                    if (isBadGateway()) return blockedResult();
-                    await sleep(100);
+                    }
+                } catch (e) {}
+
+                const apis = await getApiServices();
+                if (apis && apis.fetchMangaList) {
+                    const sp = new URL(location.href).searchParams;
+                    const params = Object.assign({}, (initialData && initialData.list && initialData.list.params) || {});
+                    const kw = (sp.get('keyword') || '').trim();
+                    if (kw) params.keyword = kw;
+                    const pg = parseInt(sp.get('page') || '', 10);
+                    if (pg > 0) params.page = pg;
+                    if (!params.limit) params.limit = 28;
+                    const cr = sp.get('content_rating');
+                    if (cr) params.content_rating = cr.split(',').filter(Boolean);
+                    const genresIn = sp.getAll('genres_in[]');
+                    if (genresIn && genresIn.length) params.genres_in = genresIn;
+                    const orderObj = {};
+                    sp.forEach((v, k) => {
+                        const m = /^order\[([^\]]+)\]$/.exec(k);
+                        if (m) orderObj[m[1]] = v;
+                    });
+                    if (Object.keys(orderObj).length) params.order = orderObj;
+
+                    let rawResult;
+                    try {
+                        rawResult = await untilSettled(apis.fetchMangaList(params));
+                    } catch (e) {
+                        if (isSiteCaptcha()) return '$SITE_CAPTCHA';
+                        return failure(e, 'Browse');
+                    }
+                    if (rawResult === CAPTCHA) return '$SITE_CAPTCHA';
+                    if (isList(rawResult)) return found(rawResult);
                 }
+
+                if (isWebViewLoadError()) return '$WEBVIEW_LOAD_FAILED';
+                if (isCloudflareChallenge()) return '$CLOUDFLARE_BLOCKED';
+                if (isSiteCaptcha()) return '$SITE_CAPTCHA';
+                if (isBadGateway()) return blockedResult();
                 return JSON.stringify({ error: 'no browse data captured' });
             })()
         """
@@ -1751,17 +1717,17 @@ $SITE_API_JS
                 }
                 if (result === CAPTCHA) return '$SITE_CAPTCHA';
 
-                const pageList = (result && (result.ia || result.iy)) || null;
+                const pageList = Array.isArray(result) ? result : ((result && (result.ia || result.iy)) || null);
                 if (Array.isArray(pageList)) {
                     const first = pageList[0] || {};
-                    const alt = first.Jr || ((first.hG && Array.isArray(first.hG)) ? first.hG : (Array.isArray(result.hG) ? result.hG : undefined));
-                    const node = first.wc || first.Mg || result.Mg || undefined;
+                    const alt = (Array.isArray(first.wt) ? first.wt : undefined) || first.Jr || ((first.hG && Array.isArray(first.hG)) ? first.hG : (result && Array.isArray(result.hG) ? result.hG : undefined));
+                    const node = first.z_ || first.bN || first.wc || first.Mg || (result && result.Mg) || undefined;
                     return JSON.stringify({
                         result: {
                             pages: {
                                 baseUrl: '',
                                 items: pageList.map((p) => ({
-                                    url: p.CK || p.fI || p.url,
+                                    url: p.pU || p.CK || p.fI || p.url,
                                     s: p.s || 0
                                 })),
                                 alt: alt,
