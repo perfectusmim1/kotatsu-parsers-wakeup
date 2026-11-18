@@ -1557,7 +1557,6 @@ $SITE_API_JS
         // carrying those back and into Manga objects causes avoidable delay.
         private const val BROWSE_CAPTURE_SCRIPT = """
             (async () => {
-                const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 $CLOUDFLARE_DETECT_JS
                 if (isWebViewLoadError()) return '$WEBVIEW_LOAD_FAILED';
                 if (isCloudflareChallenge()) return '$CLOUDFLARE_BLOCKED';
